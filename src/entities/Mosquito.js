@@ -14,6 +14,7 @@ export const MOSQUITO_STATES = {
  * - Procedural comic-style vector sprite (proboscis, elongated abdomen, thorax, fluttering wings)
  * - Rotates so proboscis strictly faces trajectory
  * - Handles dive tween and collision state
+ * - Supports associated buzz voice handle for multi-mosquito swarm sound management
  */
 export class Mosquito {
   /**
@@ -26,6 +27,7 @@ export class Mosquito {
     this.x = -100;
     this.y = -100;
     this.radius = 12; // Collision radius
+    this.buzzHandle = null; // Associated audio voice handle
 
     this.container = this.scene.add.container(-100, -100).setDepth(15).setVisible(false);
     this.buildGraphics();
@@ -146,7 +148,7 @@ export class Mosquito {
   }
 
   /**
-   * Mark as dead and hide.
+   * Mark as dead and hide. Stops any linked buzz voice.
    */
   kill() {
     this.state = MOSQUITO_STATES.DEAD;
@@ -154,11 +156,17 @@ export class Mosquito {
       this.diveTween.stop();
       this.diveTween = null;
     }
+    if (this.buzzHandle) {
+      if (typeof this.buzzHandle.stop === 'function') {
+        this.buzzHandle.stop();
+      }
+      this.buzzHandle = null;
+    }
     this.container.setVisible(false);
   }
 
   /**
-   * Deactivate and reset.
+   * Deactivate and reset for pooling. Stops any linked buzz voice.
    */
   deactivate() {
     this.state = MOSQUITO_STATES.INACTIVE;
@@ -166,12 +174,18 @@ export class Mosquito {
       this.diveTween.stop();
       this.diveTween = null;
     }
+    if (this.buzzHandle) {
+      if (typeof this.buzzHandle.stop === 'function') {
+        this.buzzHandle.stop();
+      }
+      this.buzzHandle = null;
+    }
     this.container.setVisible(false);
   }
 
   destroy() {
+    this.deactivate();
     if (this.wingFlapTween) this.wingFlapTween.stop();
-    if (this.diveTween) this.diveTween.stop();
     this.container.destroy();
   }
 }

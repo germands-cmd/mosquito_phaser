@@ -1,12 +1,11 @@
-import Phaser from 'phaser';
+import Phaser from "phaser";
 
 /**
  * Environment.js
- * Renders the top-down first-person room view:
- * - Wooden floorboards
- * - Worn rug
- * - Player's exposed legs extending from bottom foreground to feet near the top
- * - Exposed skin target regions for mosquito attacks
+ * Renders the top-down first-person room view with background image assets/background_legs.jpg:
+ * - Exposed legs polygon colliders (left and right) with numbered point IDs for manual adjustments
+ * - Visual numeric IDs rendered on screen at each vertex point in debug mode (D key)
+ * - Rejection sampling ensuring mosquito attacks land strictly on exposed skin (with side selection support)
  * - Visual bite marks (red welts) on skin
  */
 export class Environment {
@@ -15,211 +14,177 @@ export class Environment {
    * @param {number} width
    * @param {number} height
    */
-  constructor(scene, width = 800, height = 700) {
+  constructor(scene, width = 1376, height = 768) {
     this.scene = scene;
     this.width = width;
     this.height = height;
 
     this.biteMarks = [];
-    this.skinZones = [
-      // Left leg zones [minX, maxX, minY, maxY]
-      { name: 'left_foot', minX: 275, maxX: 340, minY: 115, maxY: 190 },
-      { name: 'left_shin', minX: 260, maxX: 340, minY: 200, maxY: 410 },
-      { name: 'left_thigh', minX: 220, maxX: 350, minY: 430, maxY: 670 },
-      // Right leg zones
-      { name: 'right_foot', minX: 460, maxX: 525, minY: 115, maxY: 190 },
-      { name: 'right_shin', minX: 460, maxX: 540, minY: 200, maxY: 410 },
-      { name: 'right_thigh', minX: 450, maxX: 580, minY: 430, maxY: 670 }
+
+    // Background Image
+    this.background = this.scene.add
+      .image(this.width / 2, this.height / 2, "background_legs")
+      .setDepth(0);
+
+    // Exact Polygon Colliders for exposed leg skin with numeric IDs for manual tweaking
+    this.leftLegPoints = [
+      { id: 0, x: 260, y: 680 },
+      { id: 1, x: 215, y: 620 },
+      { id: 2, x: 185, y: 520 },
+      { id: 3, x: 180, y: 420 },
+      { id: 4, x: 190, y: 340 },
+      { id: 5, x: 230, y: 290 },
+      { id: 6, x: 310, y: 280 },
+      { id: 7, x: 360, y: 290 },
+      { id: 8, x: 385, y: 335 },
+      { id: 9, x: 390, y: 400 },
+      { id: 10, x: 460, y: 520 },
+      { id: 11, x: 530, y: 610 },
+      { id: 12, x: 620, y: 680 },
+      { id: 13, x: 480, y: 700 },
+      { id: 14, x: 350, y: 700 },
     ];
 
-    this.createBackground();
-    this.createLegs();
+    this.rightLegPoints = [
+      { id: 0, x: 750, y: 680 },
+      { id: 1, x: 840, y: 610 },
+      { id: 2, x: 910, y: 520 },
+      { id: 3, x: 985, y: 400 },
+      { id: 4, x: 990, y: 335 },
+      { id: 5, x: 1015, y: 290 },
+      { id: 6, x: 1065, y: 280 },
+      { id: 7, x: 1145, y: 290 },
+      { id: 8, x: 1185, y: 340 },
+      { id: 9, x: 1195, y: 420 },
+      { id: 10, x: 1190, y: 520 },
+      { id: 11, x: 1160, y: 620 },
+      { id: 12, x: 1115, y: 680 },
+      { id: 13, x: 1020, y: 700 },
+      { id: 14, x: 890, y: 700 },
+    ];
+
+    this.leftLegPolygon = new Phaser.Geom.Polygon(this.leftLegPoints);
+    this.rightLegPolygon = new Phaser.Geom.Polygon(this.rightLegPoints);
+
+    // Bounding boxes for efficient rejection sampling
+    this.leftBounds = { minX: 180, maxX: 620, minY: 280, maxY: 700 };
+    this.rightBounds = { minX: 750, maxX: 1195, minY: 280, maxY: 700 };
+
     this.biteGraphics = this.scene.add.graphics().setDepth(5);
-  }
 
-  createBackground() {
-    const g = this.scene.add.graphics().setDepth(0);
-
-    // 1. Wooden floor background
-    g.fillStyle(0x3e2817, 1);
-    g.fillRect(0, 0, this.width, this.height);
-
-    // Plank lines & grain
-    const plankHeight = 50;
-    for (let y = 0; y < this.height; y += plankHeight) {
-      g.lineStyle(2, 0x27190e, 0.9);
-      g.lineBetween(0, y, this.width, y);
-
-      // Vertical plank divisions
-      const offset = (Math.floor(y / plankHeight) % 2) * 160;
-      for (let x = offset; x < this.width; x += 320) {
-        g.lineBetween(x, y, x, y + plankHeight);
-        // Small nail dots
-        g.fillStyle(0x1a110a, 0.7);
-        g.fillCircle(x + 12, y + 8, 2);
-        g.fillCircle(x + 12, y + plankHeight - 8, 2);
-      }
-    }
-
-    // 2. Worn rug
-    const rugX = 140;
-    const rugY = 60;
-    const rugW = 520;
-    const rugH = 610;
-
-    // Rug fringe (top & bottom)
-    g.fillStyle(0xd9c5a3, 0.9);
-    for (let x = rugX - 6; x < rugX + rugW + 6; x += 6) {
-      g.fillRect(x, rugY - 8, 3, 9);
-      g.fillRect(x, rugY + rugH, 3, 9);
-    }
-
-    // Rug base (deep muted burgundy)
-    g.fillStyle(0x5a2323, 1);
-    g.fillRect(rugX, rugY, rugW, rugH);
-
-    // Rug borders & woven patterns
-    g.lineStyle(4, 0x8a3c32, 1);
-    g.strokeRect(rugX + 8, rugY + 8, rugW - 16, rugH - 16);
-    g.lineStyle(2, 0xcaa368, 0.85);
-    g.strokeRect(rugX + 18, rugY + 18, rugW - 36, rugH - 36);
-
-    // Subtle rug center motif
-    g.fillStyle(0x3f1818, 0.5);
-    g.fillRect(rugX + 50, rugY + 50, rugW - 100, rugH - 100);
-
-    // Gritty comic border outline for rug
-    g.lineStyle(3, 0x220c0c, 1);
-    g.strokeRect(rugX, rugY, rugW, rugH);
-  }
-
-  createLegs() {
-    const g = this.scene.add.graphics().setDepth(2);
-
-    // Skin tones
-    const skinBase = 0xdeb093;
-    const skinShadow = 0xc69375;
-    const skinHighlight = 0xebd2bd;
-    const outlineColor = 0x22130e;
-    const outlineWidth = 4;
-
-    // Shadow under legs on the rug
-    g.fillStyle(0x240d0d, 0.45);
-    g.fillEllipse(300, 420, 150, 460);
-    g.fillEllipse(500, 420, 150, 460);
-
-    // Function to draw one leg
-    const drawLeg = (isRight) => {
-      const sign = isRight ? 1 : -1;
-      const cx = isRight ? 495 : 305;
-
-      // Draw Main Leg Silhouette (Polygon)
-      const points = [
-        // Foot & Toes
-        { x: cx - sign * 28, y: 110 },
-        { x: cx + sign * 28, y: 110 },
-        { x: cx + sign * 35, y: 135 },
-        { x: cx + sign * 30, y: 190 }, // Ankle
-        // Shin
-        { x: cx + sign * 36, y: 300 },
-        // Knee
-        { x: cx + sign * 45, y: 420 },
-        // Thigh
-        { x: cx + sign * 75, y: 550 },
-        { x: cx + sign * 95, y: 700 }, // Foreground bottom
-        // Inner thigh
-        { x: cx - sign * 50, y: 700 },
-        { x: cx - sign * 45, y: 550 },
-        // Inner knee
-        { x: cx - sign * 32, y: 420 },
-        // Inner calf
-        { x: cx - sign * 28, y: 300 },
-        // Inner ankle
-        { x: cx - sign * 22, y: 190 },
-        { x: cx - sign * 26, y: 140 }
-      ];
-
-      // Base skin fill
-      g.fillStyle(skinBase, 1);
-      g.fillPoints(points, true);
-
-      // Comic shadow side (outer edge)
-      g.fillStyle(skinShadow, 0.6);
-      const shadowPoints = [
-        { x: cx + sign * 20, y: 135 },
-        { x: cx + sign * 35, y: 135 },
-        { x: cx + sign * 30, y: 190 },
-        { x: cx + sign * 36, y: 300 },
-        { x: cx + sign * 45, y: 420 },
-        { x: cx + sign * 75, y: 550 },
-        { x: cx + sign * 95, y: 700 },
-        { x: cx + sign * 55, y: 700 },
-        { x: cx + sign * 40, y: 550 },
-        { x: cx + sign * 25, y: 420 },
-        { x: cx + sign * 18, y: 300 }
-      ];
-      g.fillPoints(shadowPoints, true);
-
-      // Comic highlight down the shin
-      g.fillStyle(skinHighlight, 0.45);
-      g.fillRoundedRect(cx - sign * 6 - 8, 230, 16, 150, 8);
-
-      // Knee contour lines
-      g.lineStyle(3, outlineColor, 0.75);
-      g.beginPath();
-      g.arc(cx + sign * 4, 420, 18, Phaser.Math.DegToRad(30), Phaser.Math.DegToRad(150), false);
-      g.strokePath();
-
-      // Foot & Toe creases
-      g.lineStyle(2, outlineColor, 0.8);
-      g.lineBetween(cx - sign * 18, 125, cx + sign * 18, 125);
-      g.lineBetween(cx - sign * 12, 110, cx - sign * 12, 122);
-      g.lineBetween(cx - sign * 3, 110, cx - sign * 3, 122);
-      g.lineBetween(cx + sign * 6, 110, cx + sign * 6, 122);
-      g.lineBetween(cx + sign * 15, 110, cx + sign * 15, 122);
-
-      // Gritty comic outline
-      g.lineStyle(outlineWidth, outlineColor, 1);
-      g.strokePoints(points, true);
-    };
-
-    // Draw left and right legs
-    drawLeg(false);
-    drawLeg(true);
-
-    // 3. Shorts hemline at foreground bottom
-    g.fillStyle(0x283b4a, 1);
-    g.beginPath();
-    g.moveTo(180, 700);
-    g.lineTo(210, 640);
-    g.lineTo(370, 645);
-    g.lineTo(390, 700);
-    g.closePath();
-    g.fillPath();
-
-    g.beginPath();
-    g.moveTo(410, 700);
-    g.lineTo(430, 645);
-    g.lineTo(590, 640);
-    g.lineTo(620, 700);
-    g.closePath();
-    g.fillPath();
-
-    g.lineStyle(4, outlineColor, 1);
-    g.lineBetween(210, 640, 370, 645);
-    g.lineBetween(430, 645, 590, 640);
+    // Create debug visuals with numbered vertex badges
+    this.createDebugVisuals();
   }
 
   /**
-   * Returns a random target point within exposed skin.
+   * Initializes debug visualization for polygon colliders and their numbered points.
+   */
+  createDebugVisuals() {
+    this.debugContainer = this.scene.add
+      .container(0, 0)
+      .setDepth(34)
+      .setVisible(false);
+
+    const g = this.scene.add.graphics();
+    this.debugContainer.add(g);
+
+    // 1. Semi-transparent polygon fills & outlines
+    // Left leg - Cyan
+    g.fillStyle(0x00ffff, 0.22);
+    g.fillPoints(this.leftLegPolygon.points, true);
+    g.lineStyle(3, 0x00ffff, 0.9);
+    g.strokePoints(this.leftLegPolygon.points, true);
+
+    // Right leg - Magenta
+    g.fillStyle(0xff00ff, 0.22);
+    g.fillPoints(this.rightLegPolygon.points, true);
+    g.lineStyle(3, 0xff00ff, 0.9);
+    g.strokePoints(this.rightLegPolygon.points, true);
+
+    // 2. Vertex markers with numeric ID badges
+    const renderNumberedPoints = (points, strokeHex, badgeFill, textColor) => {
+      points.forEach((pt) => {
+        // Vertex center dot
+        g.fillStyle(0xffffff, 1);
+        g.fillCircle(pt.x, pt.y, 3);
+
+        // Circular badge for the ID
+        g.fillStyle(badgeFill, 0.92);
+        g.fillCircle(pt.x, pt.y, 11);
+        g.lineStyle(2, strokeHex, 1);
+        g.strokeCircle(pt.x, pt.y, 11);
+
+        // Text displaying the point ID number
+        const idText = this.scene.add
+          .text(pt.x, pt.y, `${pt.id}`, {
+            fontFamily: '"Impact", "Arial Black", Arial, sans-serif',
+            fontSize: "12px",
+            fontWeight: "bold",
+            color: textColor,
+          })
+          .setOrigin(0.5, 0.5);
+
+        this.debugContainer.add(idText);
+      });
+    };
+
+    renderNumberedPoints(this.leftLegPoints, 0x00ffff, 0x072833, "#00ffff");
+    renderNumberedPoints(this.rightLegPoints, 0xff00ff, 0x330728, "#ff55ff");
+  }
+
+  /**
+   * Toggles visibility of the collider debug visualization.
+   * @param {boolean} visible
+   */
+  setDebugVisible(visible) {
+    if (this.debugContainer) {
+      this.debugContainer.setVisible(visible);
+    }
+  }
+
+  /**
+   * Returns a random target point guaranteed to be inside exposed skin on the chosen leg side.
+   * @param {boolean|string} [targetSide] - false / 'left' for left leg, true / 'right' for right leg, or undefined for random
    * @returns {{x: number, y: number}}
    */
-  getRandomSkinTarget() {
-    const zone = Phaser.Math.RND.pick(this.skinZones);
-    return {
-      x: Phaser.Math.Between(zone.minX, zone.maxX),
-      y: Phaser.Math.Between(zone.minY, zone.maxY)
-    };
+  getRandomSkinTarget(targetSide) {
+    let isRight;
+    if (typeof targetSide === "boolean") {
+      isRight = targetSide;
+    } else if (targetSide === "left") {
+      isRight = false;
+    } else if (targetSide === "right") {
+      isRight = true;
+    } else {
+      isRight = Math.random() < 0.5;
+    }
+
+    const poly = isRight ? this.rightLegPolygon : this.leftLegPolygon;
+    const bounds = isRight ? this.rightBounds : this.leftBounds;
+
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const x = Phaser.Math.Between(bounds.minX, bounds.maxX);
+      const y = Phaser.Math.Between(bounds.minY, bounds.maxY);
+      if (Phaser.Geom.Polygon.Contains(poly, x, y)) {
+        return { x, y };
+      }
+    }
+
+    // Centroid fallbacks in case sampling loop exceeds attempts
+    return isRight ? { x: 1060, y: 480 } : { x: 300, y: 480 };
+  }
+
+  /**
+   * Checks if a point lies within the exposed leg colliders.
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  isPointOnLegs(x, y) {
+    return (
+      Phaser.Geom.Polygon.Contains(this.leftLegPolygon, x, y) ||
+      Phaser.Geom.Polygon.Contains(this.rightLegPolygon, x, y)
+    );
   }
 
   /**
@@ -259,5 +224,16 @@ export class Environment {
   reset() {
     this.biteMarks = [];
     this.biteGraphics.clear();
+  }
+
+  /**
+   * Cleanup
+   */
+  destroy() {
+    if (this.debugContainer) {
+      this.debugContainer.destroy();
+    }
+    this.biteGraphics.destroy();
+    this.background.destroy();
   }
 }

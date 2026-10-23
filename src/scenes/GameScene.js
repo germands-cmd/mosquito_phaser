@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import backgroundLegsImg from '../../assets/background_legs.jpg';
 import { AudioManager, DIRECTIONS } from '../audio/AudioManager.js';
 import { Environment } from '../entities/Environment.js';
 import { Swatter } from '../entities/Swatter.js';
@@ -14,11 +15,16 @@ export const GAME_STATES = {
  * GameScene.js
  * Primary scene orchestrating gameplay, Web Audio directional anticipation,
  * Version 1.1 Visual Assistance Mode (No-Audio), speed selection (5 levels),
- * comic visual presentation, feedback particles, and dev debug tools.
+ * comic visual presentation with photo-comic leg background, swarm waves (5 mosquitos every 2.5s),
+ * multi-target swatting, feedback particles, and dev debug tools.
  */
 export default class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: 'game' });
+  }
+
+  preload() {
+    this.load.image('background_legs', backgroundLegsImg);
   }
 
   create() {
@@ -36,7 +42,7 @@ export default class GameScene extends Phaser.Scene {
     // 1. Initialize Audio Engine
     this.audio = new AudioManager();
 
-    // 2. Build Environment (Flooring, Rug, Legs, Skin target regions)
+    // 2. Build Environment (Background image, Legs Polygon Colliders with numbered IDs)
     this.environment = new Environment(this, this.scale.width, this.scale.height);
 
     // 3. Blood Splatter Decals Graphics (on ground/legs)
@@ -62,13 +68,13 @@ export default class GameScene extends Phaser.Scene {
       emitting: false
     }).setDepth(18);
 
-    // 5. Visual Assistance Indicator ("Little Red Help" for No-Audio Mode)
+    // 5. Visual Assistance Indicators Pool ("Little Red Help" for No-Audio Mode)
     this.createVisualHelpIndicator();
 
     // 6. Fly Swatter Controller
     this.swatter = new Swatter(this, 36);
 
-    // 7. Mosquito Manager
+    // 7. Mosquito Swarm Manager (5 mosquitoes every 2.5s)
     this.mosquitoManager = new MosquitoManager(this, this.audio, this.environment, {
       onHit: (x, y) => this.handleMosquitoHit(x, y),
       onBite: (x, y) => this.handleMosquitoBite(x, y),
@@ -77,9 +83,11 @@ export default class GameScene extends Phaser.Scene {
           direction: dirData.name,
           duration: `${durationSec.toFixed(1)}s`
         };
-        this.updateDebugOverlay();
+        if (this.debugMode) {
+          this.updateDebugOverlay();
+        }
       },
-      onVisualWarning: (dirData, spawnPos, durationSec) => {
+      onVisualWarning: (dirData, spawnPos, durationSec, mosquito) => {
         this.showVisualHelp(dirData, spawnPos, durationSec);
       },
       onWarningEnd: () => {
@@ -96,6 +104,9 @@ export default class GameScene extends Phaser.Scene {
     // 9. Pointer / Input Listeners
     this.input.on('pointermove', (pointer) => {
       this.swatter.updatePosition(pointer.x, pointer.y);
+      if (this.debugMode) {
+        this.updateDebugOverlay(pointer.x, pointer.y);
+      }
     });
 
     this.input.on('pointerdown', (pointer) => {
@@ -119,43 +130,50 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Creates the visual indicator used in No-Audio mode to alert the player
-   * of the incoming mosquito direction.
+   * Creates an indicator pool for No-Audio mode to alert the player
+   * of incoming mosquitoes from various directions simultaneously.
    */
   createVisualHelpIndicator() {
-    this.visualHelpContainer = this.add.container(0, 0).setDepth(25).setVisible(false);
+    this.visualHelpPool = [];
+    for (let i = 0; i < 15; i++) {
+      const container = this.add.container(0, 0).setDepth(25).setVisible(false);
 
-    // Outer warning pulse glow
-    this.visualHelpPulse = this.add.graphics();
-    this.visualHelpContainer.add(this.visualHelpPulse);
+      const pulse = this.add.graphics();
+      pulse.fillStyle(0xff1122, 0.4);
+      pulse.fillCircle(0, 0, 24);
+      container.add(pulse);
 
-    // Sharp central red warning icon
-    this.visualHelpIcon = this.add.graphics();
-    this.visualHelpContainer.add(this.visualHelpIcon);
+      const icon = this.add.graphics();
+      icon.fillStyle(0xd91424, 0.95);
+      icon.fillCircle(0, 0, 16);
+      icon.lineStyle(3, 0xffffff, 1);
+      icon.strokeCircle(0, 0, 16);
+      container.add(icon);
 
-    // Text alert label (e.g., "!")
-    this.visualHelpText = this.add.text(0, 0, '!', {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '20px',
-      color: '#ffffff'
-    }).setOrigin(0.5);
-    this.visualHelpContainer.add(this.visualHelpText);
+      const text = this.add.text(0, 0, '!', {
+        fontFamily: '"Impact", "Arial Black", sans-serif',
+        fontSize: '20px',
+        color: '#ffffff'
+      }).setOrigin(0.5);
+      container.add(text);
 
-    // Continuous pulse tween
-    this.visualPulseTween = this.tweens.add({
-      targets: this.visualHelpContainer,
-      scaleX: 1.25,
-      scaleY: 1.25,
-      yoyo: true,
-      repeat: -1,
-      duration: 220
-    });
+      this.tweens.add({
+        targets: container,
+        scaleX: 1.25,
+        scaleY: 1.25,
+        yoyo: true,
+        repeat: -1,
+        duration: 220
+      });
+
+      this.visualHelpPool.push(container);
+    }
   }
 
   showVisualHelp(dirData, spawnPos, durationSec) {
     const width = this.scale.width;
     const height = this.scale.height;
-    let x = 400;
+    let x = width / 2;
     let y = 50;
 
     switch (dirData.name) {
@@ -181,37 +199,34 @@ export default class GameScene extends Phaser.Scene {
         break;
     }
 
-    this.visualHelpContainer.setPosition(x, y);
+    // Pick an available visual help container from pool
+    const container = this.visualHelpPool.find(c => !c.visible) || this.visualHelpPool[0];
+    container.setPosition(x, y);
+    container.setVisible(true);
 
-    // Redraw crisp warning marker
-    this.visualHelpPulse.clear();
-    this.visualHelpPulse.fillStyle(0xff1122, 0.4);
-    this.visualHelpPulse.fillCircle(0, 0, 24);
-
-    this.visualHelpIcon.clear();
-    this.visualHelpIcon.fillStyle(0xd91424, 0.95);
-    this.visualHelpIcon.fillCircle(0, 0, 16);
-    this.visualHelpIcon.lineStyle(3, 0xffffff, 1);
-    this.visualHelpIcon.strokeCircle(0, 0, 16);
-
-    this.visualHelpContainer.setVisible(true);
+    this.time.delayedCall(durationSec * 1000, () => {
+      container.setVisible(false);
+    });
   }
 
   hideVisualHelp() {
-    if (this.visualHelpContainer) {
-      this.visualHelpContainer.setVisible(false);
+    if (this.visualHelpPool) {
+      for (const c of this.visualHelpPool) {
+        c.setVisible(false);
+      }
     }
   }
 
   createHUD() {
     this.hudContainer = this.add.container(0, 0).setDepth(30);
+    const width = this.scale.width;
 
     // Top status banner background
     const bg = this.add.graphics();
-    bg.fillStyle(0x18100c, 0.8);
-    bg.fillRoundedRect(16, 12, 768, 44, 8);
+    bg.fillStyle(0x18100c, 0.85);
+    bg.fillRoundedRect(16, 12, width - 32, 44, 8);
     bg.lineStyle(2, 0x3d2817, 0.9);
-    bg.strokeRoundedRect(16, 12, 768, 44, 8);
+    bg.strokeRoundedRect(16, 12, width - 32, 44, 8);
     this.hudContainer.add(bg);
 
     // Swats score text
@@ -225,7 +240,7 @@ export default class GameScene extends Phaser.Scene {
     this.hudContainer.add(this.swatText);
 
     // Mode & Speed badge in middle
-    this.modeBadge = this.add.text(400, 26, '🎧 AUDIO  |  SPEED: FAST', {
+    this.modeBadge = this.add.text(width / 2, 26, '🎧 AUDIO  |  SPEED: FAST', {
       fontFamily: 'sans-serif',
       fontSize: '14px',
       fontWeight: 'bold',
@@ -234,7 +249,7 @@ export default class GameScene extends Phaser.Scene {
     this.hudContainer.add(this.modeBadge);
 
     // Bite counter text
-    this.biteText = this.add.text(764, 24, `BITES: 0 / ${this.maxBites}`, {
+    this.biteText = this.add.text(width - 36, 24, `BITES: 0 / ${this.maxBites}`, {
       fontFamily: '"Impact", "Arial Black", sans-serif',
       fontSize: '20px',
       color: '#e64444',
@@ -246,14 +261,17 @@ export default class GameScene extends Phaser.Scene {
 
   createReadyOverlay() {
     this.readyContainer = this.add.container(0, 0).setDepth(40);
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const cx = width / 2;
 
     const dim = this.add.graphics();
     dim.fillStyle(0x0e0806, 0.88);
-    dim.fillRect(0, 0, this.scale.width, this.scale.height);
+    dim.fillRect(0, 0, width, height);
     this.readyContainer.add(dim);
 
     // Title & Version tag
-    const title = this.add.text(400, 110, 'MOSQUITO', {
+    const title = this.add.text(cx, 110, 'MOSQUITO', {
       fontFamily: '"Impact", "Arial Black", sans-serif',
       fontSize: '72px',
       color: '#d94b36',
@@ -262,7 +280,7 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.readyContainer.add(title);
 
-    const versionTag = this.add.text(400, 155, 'v1.1 PROTOTYPE', {
+    const versionTag = this.add.text(cx, 155, 'v1.2 SWARM EDITION', {
       fontFamily: 'sans-serif',
       fontSize: '12px',
       color: '#a18b76',
@@ -273,13 +291,13 @@ export default class GameScene extends Phaser.Scene {
     // Instruction Box
     const instructionBox = this.add.graphics();
     instructionBox.fillStyle(0x1a120e, 0.92);
-    instructionBox.fillRoundedRect(160, 180, 480, 110, 10);
+    instructionBox.fillRoundedRect(cx - 240, 180, 480, 110, 10);
     instructionBox.lineStyle(2, 0x4a2e1d, 1);
-    instructionBox.strokeRoundedRect(160, 180, 480, 110, 10);
+    instructionBox.strokeRoundedRect(cx - 240, 180, 480, 110, 10);
     this.readyContainer.add(instructionBox);
 
-    this.instructionsText = this.add.text(400, 235,
-      '1. Anticipate mosquito approaches 2-4s before they dive.\n' +
+    this.instructionsText = this.add.text(cx, 235,
+      '1. Swarms of 5 mosquitoes attack every 2.5 seconds!\n' +
       '2. Move mouse to position the fly swatter shadow.\n' +
       '3. Left-click to smash mosquitoes before they land 3 bites!', {
       fontFamily: 'sans-serif',
@@ -295,7 +313,7 @@ export default class GameScene extends Phaser.Scene {
     // -------------------------------------------------------------
 
     // 1. Mode Selection Container (Audio vs No-Audio)
-    const modeLabel = this.add.text(400, 310, 'SELECT MODE:', {
+    const modeLabel = this.add.text(cx, 310, 'SELECT MODE:', {
       fontFamily: '"Arial Black", sans-serif',
       fontSize: '13px',
       color: '#dec5ab'
@@ -303,16 +321,16 @@ export default class GameScene extends Phaser.Scene {
     this.readyContainer.add(modeLabel);
 
     // Mode Buttons
-    this.btnModeAudio = this.createSegmentButton(260, 345, 130, 38, '🎧 Audio Mode', true, () => {
+    this.btnModeAudio = this.createSegmentButton(cx - 145, 345, 135, 38, '🎧 Audio Mode', true, () => {
       this.setGameMode(GAME_MODES.AUDIO);
     });
-    this.btnModeVisual = this.createSegmentButton(410, 345, 150, 38, '👁️ No Audio (Help)', false, () => {
+    this.btnModeVisual = this.createSegmentButton(cx + 10, 345, 155, 38, '👁️ No Audio (Help)', false, () => {
       this.setGameMode(GAME_MODES.NO_AUDIO);
     });
     this.readyContainer.add([this.btnModeAudio.container, this.btnModeVisual.container]);
 
     // 2. Speed Selection Container (5 options)
-    const speedLabel = this.add.text(400, 400, 'MOSQUITO SPEED (5 OPTIONS):', {
+    const speedLabel = this.add.text(cx, 400, 'MOSQUITO SPEED (5 OPTIONS):', {
       fontFamily: '"Arial Black", sans-serif',
       fontSize: '13px',
       color: '#dec5ab'
@@ -323,15 +341,15 @@ export default class GameScene extends Phaser.Scene {
     this.speedDisplayBg = this.add.graphics();
     this.readyContainer.add(this.speedDisplayBg);
 
-    this.speedText = this.add.text(400, 442, 'SPEED: FAST', {
+    this.speedText = this.add.text(cx, 442, 'SPEED: FAST', {
       fontFamily: '"Impact", "Arial Black", sans-serif',
       fontSize: '22px',
       color: '#f5efe6'
     }).setOrigin(0.5);
     this.readyContainer.add(this.speedText);
 
-    this.btnSpeedPrev = this.createArrowButton(230, 442, '◀', () => this.cycleSpeed(-1));
-    this.btnSpeedNext = this.createArrowButton(570, 442, '▶', () => this.cycleSpeed(1));
+    this.btnSpeedPrev = this.createArrowButton(cx - 170, 442, '◀', () => this.cycleSpeed(-1));
+    this.btnSpeedNext = this.createArrowButton(cx + 170, 442, '▶', () => this.cycleSpeed(1));
     this.readyContainer.add([this.btnSpeedPrev, this.btnSpeedNext]);
 
     this.updateSpeedDisplay();
@@ -341,19 +359,19 @@ export default class GameScene extends Phaser.Scene {
     // -------------------------------------------------------------
     const btnBg = this.add.graphics();
     btnBg.fillStyle(0xc23b28, 1);
-    btnBg.fillRoundedRect(280, 520, 240, 56, 10);
+    btnBg.fillRoundedRect(cx - 120, 520, 240, 56, 10);
     btnBg.lineStyle(3, 0xffeedd, 1);
-    btnBg.strokeRoundedRect(280, 520, 240, 56, 10);
+    btnBg.strokeRoundedRect(cx - 120, 520, 240, 56, 10);
     this.readyContainer.add(btnBg);
 
-    const btnText = this.add.text(400, 548, 'START GAME', {
+    const btnText = this.add.text(cx, 548, 'START GAME', {
       fontFamily: '"Impact", "Arial Black", sans-serif',
       fontSize: '26px',
       color: '#ffffff'
     }).setOrigin(0.5);
     this.readyContainer.add(btnText);
 
-    const hitZone = this.add.zone(400, 548, 240, 56).setInteractive({ cursor: 'pointer' });
+    const hitZone = this.add.zone(cx, 548, 240, 56).setInteractive({ cursor: 'pointer' });
     this.readyContainer.add(hitZone);
 
     hitZone.on('pointerdown', () => {
@@ -445,25 +463,29 @@ export default class GameScene extends Phaser.Scene {
   updateSpeedDisplay() {
     const currentKey = SPEED_KEYS[this.speedIndex];
     const speedData = SPEED_LEVELS[currentKey];
+    const cx = this.scale.width / 2;
 
     this.speedText.setText(`SPEED: ${speedData.label.toUpperCase()}`);
 
     this.speedDisplayBg.clear();
     this.speedDisplayBg.fillStyle(0x24150e, 0.95);
-    this.speedDisplayBg.fillRoundedRect(270, 420, 260, 44, 8);
+    this.speedDisplayBg.fillRoundedRect(cx - 130, 420, 260, 44, 8);
     this.speedDisplayBg.lineStyle(2, 0x523321, 1);
-    this.speedDisplayBg.strokeRoundedRect(270, 420, 260, 44, 8);
+    this.speedDisplayBg.strokeRoundedRect(cx - 130, 420, 260, 44, 8);
   }
 
   createGameOverOverlay() {
     this.gameOverContainer = this.add.container(0, 0).setDepth(45).setVisible(false);
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const cx = width / 2;
 
     const dim = this.add.graphics();
     dim.fillStyle(0x1a0505, 0.92);
-    dim.fillRect(0, 0, this.scale.width, this.scale.height);
+    dim.fillRect(0, 0, width, height);
     this.gameOverContainer.add(dim);
 
-    const title = this.add.text(400, 210, 'EATEN ALIVE!', {
+    const title = this.add.text(cx, 210, 'EATEN ALIVE!', {
       fontFamily: '"Impact", "Arial Black", sans-serif',
       fontSize: '68px',
       color: '#e62e2e',
@@ -472,7 +494,7 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.gameOverContainer.add(title);
 
-    this.gameOverStats = this.add.text(400, 310, 'You swatted 0 mosquitoes.', {
+    this.gameOverStats = this.add.text(cx, 310, 'You swatted 0 mosquitoes.', {
       fontFamily: 'sans-serif',
       fontSize: '22px',
       color: '#e5d0be'
@@ -482,19 +504,19 @@ export default class GameScene extends Phaser.Scene {
     // Retry Button
     const retryBg = this.add.graphics();
     retryBg.fillStyle(0x942216, 1);
-    retryBg.fillRoundedRect(280, 410, 240, 56, 10);
+    retryBg.fillRoundedRect(cx - 120, 410, 240, 56, 10);
     retryBg.lineStyle(3, 0xffeedd, 1);
-    retryBg.strokeRoundedRect(280, 410, 240, 56, 10);
+    retryBg.strokeRoundedRect(cx - 120, 410, 240, 56, 10);
     this.gameOverContainer.add(retryBg);
 
-    const retryText = this.add.text(400, 438, 'TRY AGAIN', {
+    const retryText = this.add.text(cx, 438, 'TRY AGAIN', {
       fontFamily: '"Impact", "Arial Black", sans-serif',
       fontSize: '26px',
       color: '#ffffff'
     }).setOrigin(0.5);
     this.gameOverContainer.add(retryText);
 
-    const retryZone = this.add.zone(400, 438, 240, 56).setInteractive({ cursor: 'pointer' });
+    const retryZone = this.add.zone(cx, 438, 240, 56).setInteractive({ cursor: 'pointer' });
     this.gameOverContainer.add(retryZone);
 
     retryZone.on('pointerdown', () => {
@@ -506,8 +528,8 @@ export default class GameScene extends Phaser.Scene {
     this.debugContainer = this.add.container(16, 68).setDepth(35).setVisible(false);
 
     const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.75);
-    bg.fillRoundedRect(0, 0, 330, 125, 6);
+    bg.fillStyle(0x000000, 0.8);
+    bg.fillRoundedRect(0, 0, 340, 180, 6);
     this.debugContainer.add(bg);
 
     this.debugText = this.add.text(12, 10, '', {
@@ -520,24 +542,44 @@ export default class GameScene extends Phaser.Scene {
     this.updateDebugOverlay();
   }
 
-  updateDebugOverlay() {
+  updateDebugOverlay(mouseX = this.input.x, mouseY = this.input.y) {
     if (!this.debugText) return;
     const speedKey = SPEED_KEYS[this.speedIndex];
+    const mx = Math.round(mouseX || 0);
+    const my = Math.round(mouseY || 0);
+    const activeCount = this.mosquitoManager ? this.mosquitoManager.getActiveCount() : 0;
     this.debugText.setText(
       `[DEBUG MODE (D to toggle)]\n` +
+      `Mouse (X, Y)     : ${mx}, ${my}\n` +
+      `Active Mosquitos : ${activeCount}\n` +
+      `Wave Interval    : 2.5s (5 per wave)\n` +
+      `Left Leg Points  : 0 - 14 (Cyan)\n` +
+      `Right Leg Points : 0 - 14 (Magenta)\n` +
       `Mode             : ${this.currentMode}\n` +
       `Speed Level      : ${SPEED_LEVELS[speedKey]?.label}\n` +
-      `Active Direction : ${this.debugInfo.direction}\n` +
-      `Warning Duration : ${this.debugInfo.duration}\n` +
       `Force Keys       : 1:L 2:TL 3:T 4:TR 5:R`
     );
   }
 
   setupDebugKeys() {
-    // D to toggle debug overlay
+    // D to toggle debug overlay and collider outlines
     this.input.keyboard.on('keydown-D', () => {
       this.debugMode = !this.debugMode;
       this.debugContainer.setVisible(this.debugMode);
+      this.environment.setDebugVisible(this.debugMode);
+      this.updateDebugOverlay();
+
+      // In start menu (READY state), toggle start UI visibility so colliders are completely unobstructed
+      if (this.gameState === GAME_STATES.READY) {
+        this.readyContainer.setVisible(!this.debugMode);
+      }
+    });
+
+    // Space key to start game directly
+    this.input.keyboard.on('keydown-SPACE', () => {
+      if (this.gameState === GAME_STATES.READY) {
+        this.startGame();
+      }
     });
 
     // 1-5 keys to force specific attack directions for testing
@@ -625,7 +667,7 @@ export default class GameScene extends Phaser.Scene {
     this.gameState = GAME_STATES.GAME_OVER;
     this.hideVisualHelp();
     this.mosquitoManager.stop();
-    this.audio.stopMosquitoBuzz();
+    this.audio.stopAllMosquitoBuzzes();
 
     this.gameOverStats.setText(`You managed to swat ${this.swats} mosquito${this.swats === 1 ? '' : 'es'}.`);
     this.gameOverContainer.setVisible(true);
@@ -645,6 +687,7 @@ export default class GameScene extends Phaser.Scene {
     this.hideVisualHelp();
     this.mosquitoManager.destroy();
     this.swatter.destroy();
+    this.environment.destroy();
     this.audio.destroy();
   }
 }

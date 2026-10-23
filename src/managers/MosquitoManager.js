@@ -1,28 +1,34 @@
-import Phaser from 'phaser';
-import { Mosquito, MOSQUITO_STATES } from '../entities/Mosquito.js';
-import { DIRECTIONS } from '../audio/AudioManager.js';
+import Phaser from "phaser";
+import { Mosquito, MOSQUITO_STATES } from "../entities/Mosquito.js";
+import { DIRECTIONS } from "../audio/AudioManager.js";
 
-export const SPAWN_KEYS = ['LEFT', 'TOP_LEFT', 'TOP', 'TOP_RIGHT', 'RIGHT'];
+export const SPAWN_KEYS = ["LEFT", "TOP_LEFT", "TOP", "TOP_RIGHT", "RIGHT"];
 
 export const GAME_MODES = {
-  AUDIO: 'AUDIO',
-  NO_AUDIO: 'NO_AUDIO'
+  AUDIO: "AUDIO",
+  NO_AUDIO: "NO_AUDIO",
 };
 
 export const SPEED_LEVELS = {
-  VERY_SLOW: { key: 'VERY_SLOW', label: 'Very Slow', minMs: 1400, maxMs: 1800 },
-  SLOW: { key: 'SLOW', label: 'Slow', minMs: 1000, maxMs: 1300 },
-  NORMAL: { key: 'NORMAL', label: 'Normal', minMs: 750, maxMs: 1000 },
-  FAST: { key: 'FAST', label: 'Fast', minMs: 480, maxMs: 800 }, // Baseline
-  SUPER_FAST: { key: 'SUPER_FAST', label: 'Super Fast', minMs: 280, maxMs: 420 }
+  VERY_SLOW: { key: "VERY_SLOW", label: "Very Slow", minMs: 5400, maxMs: 5800 },
+  SLOW: { key: "SLOW", label: "Slow", minMs: 1000, maxMs: 1300 },
+  NORMAL: { key: "NORMAL", label: "Normal", minMs: 750, maxMs: 1000 },
+  FAST: { key: "FAST", label: "Fast", minMs: 480, maxMs: 800 }, // Baseline
+  SUPER_FAST: {
+    key: "SUPER_FAST",
+    label: "Super Fast",
+    minMs: 280,
+    maxMs: 420,
+  },
 };
 
-export const SPEED_KEYS = ['VERY_SLOW', 'SLOW', 'NORMAL', 'FAST', 'SUPER_FAST'];
+export const SPEED_KEYS = ["VERY_SLOW", "SLOW", "NORMAL", "FAST", "SUPER_FAST"];
 
 /**
  * MosquitoManager.js
- * Controls attack lifecycles, directional audio synchronization,
- * visual assistance indicators (No-Audio mode), speed scaling, and hit interception.
+ * Controls swarm attack lifecycles, wave generation (5 mosquitoes every 2.5s),
+ * side-targeted leg diving (left side attacks left leg, right side attacks right leg),
+ * multi-voice spatial audio synchronization, multi-target swatting, and object pooling.
  */
 export class MosquitoManager {
   /**
@@ -37,15 +43,24 @@ export class MosquitoManager {
     this.environment = environment;
     this.callbacks = callbacks; // onHit, onBite, onWarningStart, onVisualWarning, onWarningEnd
 
-    this.mosquito = new Mosquito(this.scene);
-    this.warningTimer = null;
-    this.cooldownTimer = null;
+    // Object pool for swarm entities
+    this.mosquitoPool = [];
+    this.pendingWarningTimers = new Set();
+    this.waveTimer = null;
     this.isRunning = false;
 
-    this.mode = GAME_MODES.AUDIO;
-    this.speedLevel = 'FAST';
+    // Swarm wave settings
+    this.waveIntervalMs = 3000; // Wave every X seconds
+    this.waveSize = 3; // X mosquitoes per wave
 
-    this.currentDirection = null;
+    this.mode = GAME_MODES.AUDIO;
+    this.speedLevel = "FAST";
+    this.lastDirection = null;
+
+    // Pre-populate pool with initial entities
+    for (let i = 0; i < 15; i++) {
+      this.mosquitoPool.push(new Mosquito(this.scene));
+    }
   }
 
   setMode(mode) {
@@ -59,106 +74,146 @@ export class MosquitoManager {
   }
 
   /**
-   * Starts the automatic mosquito attack scheduler.
+   * Retrieves an inactive mosquito from the pool or instantiates a new one.
+   * @returns {Mosquito}
+   */
+  getAvailableMosquito() {
+    let mosquito = this.mosquitoPool.find(
+      (m) =>
+        m.state === MOSQUITO_STATES.INACTIVE ||
+        m.state === MOSQUITO_STATES.DEAD,
+    );
+    if (!mosquito) {
+      mosquito = new Mosquito(this.scene);
+      this.mosquitoPool.push(mosquito);
+    }
+    return mosquito;
+  }
+
+  /**
+   * Starts the wave generator: 5 mosquitoes every 2.5 seconds.
    */
   start() {
     this.isRunning = true;
-    this.scheduleNextAttack(1000);
-  }
 
-  /**
-   * Stops active attacks and timers.
-   */
-  stop() {
-    this.isRunning = false;
-    if (this.warningTimer) {
-      this.warningTimer.remove();
-      this.warningTimer = null;
+    // Launch first wave immediately
+    this.spawnWave(this.waveSize);
+
+    // Continuous recurring wave timer every 2.5s
+    if (this.waveTimer) {
+      this.waveTimer.remove();
     }
-    if (this.cooldownTimer) {
-      this.cooldownTimer.remove();
-      this.cooldownTimer = null;
-    }
-    this.audioManager.stopMosquitoBuzz();
-    this.mosquito.deactivate();
-
-    if (this.callbacks.onWarningEnd) {
-      this.callbacks.onWarningEnd();
-    }
-  }
-
-  /**
-   * Schedules next attack after a delay.
-   * @param {number} delayMs
-   */
-  scheduleNextAttack(delayMs = 1500) {
-    if (!this.isRunning) return;
-
-    if (this.cooldownTimer) {
-      this.cooldownTimer.remove();
-    }
-
-    this.cooldownTimer = this.scene.time.delayedCall(delayMs, () => {
-      if (!this.isRunning) return;
-      const randomKey = Phaser.Math.RND.pick(SPAWN_KEYS);
-      this.triggerAttack(randomKey);
+    this.waveTimer = this.scene.time.addEvent({
+      delay: this.waveIntervalMs,
+      callback: () => {
+        if (!this.isRunning) return;
+        this.spawnWave(this.waveSize);
+      },
+      loop: true,
     });
   }
 
   /**
-   * Triggers an attack from a specific direction.
-   * @param {string} directionKey - One of 'LEFT', 'TOP_LEFT', 'TOP', 'TOP_RIGHT', 'RIGHT'
+   * Stops active attacks, wave timer, warning timers, and buzz voices.
    */
-  triggerAttack(directionKey) {
-    if (!this.isRunning) return;
+  stop() {
+    this.isRunning = false;
 
-    // If currently diving, don't interrupt
-    if (this.mosquito.state === MOSQUITO_STATES.DIVING) return;
-
-    // Clean any prior pending warning
-    if (this.warningTimer) {
-      this.warningTimer.remove();
-      this.warningTimer = null;
+    if (this.waveTimer) {
+      this.waveTimer.remove();
+      this.waveTimer = null;
     }
-    this.audioManager.stopMosquitoBuzz();
-    this.mosquito.deactivate();
+
+    for (const timer of this.pendingWarningTimers) {
+      timer.remove();
+    }
+    this.pendingWarningTimers.clear();
+
+    for (const m of this.mosquitoPool) {
+      m.deactivate();
+    }
+
+    this.audioManager.stopAllMosquitoBuzzes();
 
     if (this.callbacks.onWarningEnd) {
       this.callbacks.onWarningEnd();
     }
+  }
 
+  /**
+   * Spawns a simultaneous wave of mosquitoes.
+   * @param {number} count - Number of mosquitoes in this wave (default 5)
+   */
+  spawnWave(count = 5) {
+    if (!this.isRunning) return;
+
+    for (let i = 0; i < count; i++) {
+      const randomKey = Phaser.Math.RND.pick(SPAWN_KEYS);
+      this.spawnSingleMosquito(randomKey);
+    }
+  }
+
+  /**
+   * Spawns an individual mosquito from a specific direction with warning and dive lifecycle.
+   * @param {string} directionKey
+   */
+  spawnSingleMosquito(directionKey) {
+    if (!this.isRunning) return;
+
+    const mosquito = this.getAvailableMosquito();
     const dirData = DIRECTIONS[directionKey] || DIRECTIONS.TOP;
-    this.currentDirection = dirData;
+    this.lastDirection = dirData;
 
-    // Warning duration: randomized between 2.0 and 3.8s as specified in DESIGN.md
-    const warningDurationSec = Phaser.Math.FloatBetween(2.0, 3.8);
+    // Warning duration between 1.2s and 1.8s to harmonize with the 2.5s wave interval
+    const warningDurationSec = Phaser.Math.FloatBetween(1.2, 1.8);
     const spawnPos = this.getSpawnPosition(dirData);
 
-    // Notify scene of warning start (for debug display)
+    mosquito.state = MOSQUITO_STATES.WARNING;
+    mosquito.x = spawnPos.x;
+    mosquito.y = spawnPos.y;
+
     if (this.callbacks.onWarningStart) {
       this.callbacks.onWarningStart(dirData, warningDurationSec);
     }
 
     // Audio vs No-Audio logic:
     if (this.mode === GAME_MODES.AUDIO) {
-      // Single source of truth: spatial audio starts with matching direction
-      this.audioManager.startMosquitoBuzz(dirData, warningDurationSec);
+      // Individual spatial buzz voice with radically reduced volume
+      mosquito.buzzHandle = this.audioManager.startMosquitoBuzz(
+        dirData,
+        warningDurationSec,
+      );
     } else {
-      // No-audio version: show little red helper indicator on screen
       if (this.callbacks.onVisualWarning) {
-        this.callbacks.onVisualWarning(dirData, spawnPos, warningDurationSec);
+        this.callbacks.onVisualWarning(
+          dirData,
+          spawnPos,
+          warningDurationSec,
+          mosquito,
+        );
       }
     }
 
-    // Schedule dive right at completion of warning period
-    this.warningTimer = this.scene.time.delayedCall(warningDurationSec * 1000, () => {
-      this.warningTimer = null;
-      if (this.callbacks.onWarningEnd) {
-        this.callbacks.onWarningEnd();
-      }
-      if (!this.isRunning) return;
-      this.executeDive(dirData, spawnPos);
-    });
+    // Schedule dive when warning completes
+    const warningTimer = this.scene.time.delayedCall(
+      warningDurationSec * 1000,
+      () => {
+        this.pendingWarningTimers.delete(warningTimer);
+        if (!this.isRunning || mosquito.state !== MOSQUITO_STATES.WARNING)
+          return;
+        this.executeDive(mosquito, dirData, spawnPos);
+      },
+    );
+    this.pendingWarningTimers.add(warningTimer);
+  }
+
+  /**
+   * Triggers a manual single mosquito attack for debug key tests (1-5).
+   * @param {string} directionKey
+   */
+  triggerAttack(directionKey) {
+    if (!this.isRunning) return;
+    this.spawnSingleMosquito(directionKey);
   }
 
   /**
@@ -172,15 +227,15 @@ export class MosquitoManager {
     const height = this.scene.scale.height;
 
     switch (dirData.name) {
-      case 'LEFT':
+      case "LEFT":
         return { x: -25, y: Phaser.Math.Between(150, 580) };
-      case 'TOP_LEFT':
+      case "TOP_LEFT":
         return { x: -20, y: Phaser.Math.Between(-20, 80) };
-      case 'TOP':
+      case "TOP":
         return { x: Phaser.Math.Between(200, width - 200), y: -25 };
-      case 'TOP_RIGHT':
+      case "TOP_RIGHT":
         return { x: width + 20, y: Phaser.Math.Between(-20, 80) };
-      case 'RIGHT':
+      case "RIGHT":
         return { x: width + 25, y: Phaser.Math.Between(150, 580) };
       default:
         return { x: width / 2, y: -25 };
@@ -188,20 +243,35 @@ export class MosquitoManager {
   }
 
   /**
-   * Launches the dive towards skin.
+   * Launches the dive of a mosquito towards an exposed skin target on the legs.
+   * Targets the leg on the same side of the screen as the mosquito's spawn point.
+   * @param {Mosquito} mosquito
    * @param {Object} dirData
    * @param {{x: number, y: number}} spawnPos
    */
-  executeDive(dirData, spawnPos) {
-    const targetPos = this.environment.getRandomSkinTarget();
+  executeDive(mosquito, dirData, spawnPos) {
+    if (!this.isRunning) return;
+
+    // Target the leg matching the spawn side of the screen
+    // Left side (spawnPos.x < width / 2) -> Left leg (isRightLeg = false)
+    // Right side (spawnPos.x >= width / 2) -> Right leg (isRightLeg = true)
+    const isRightLeg = spawnPos.x >= this.scene.scale.width / 2;
+    const targetPos = this.environment.getRandomSkinTarget(isRightLeg);
 
     // Scale dive duration based on selected speed level
     const speedConfig = SPEED_LEVELS[this.speedLevel] || SPEED_LEVELS.FAST;
-    const diveDurationMs = Phaser.Math.Between(speedConfig.minMs, speedConfig.maxMs);
+    const diveDurationMs = Phaser.Math.Between(
+      speedConfig.minMs,
+      speedConfig.maxMs,
+    );
 
-    this.mosquito.startDive(spawnPos, targetPos, diveDurationMs, (biteX, biteY) => {
+    mosquito.startDive(spawnPos, targetPos, diveDurationMs, (biteX, biteY) => {
       // Mosquito reached skin without being swatted
-      this.audioManager.stopMosquitoBuzz();
+      if (mosquito.buzzHandle) {
+        mosquito.buzzHandle.stop();
+        mosquito.buzzHandle = null;
+      }
+
       this.audioManager.playBite();
       this.environment.addBiteMark(biteX, biteY);
 
@@ -209,55 +279,66 @@ export class MosquitoManager {
         this.callbacks.onBite(biteX, biteY);
       }
 
-      this.mosquito.deactivate();
-
-      // Schedule next attack if game is still active
-      if (this.isRunning) {
-        this.scheduleNextAttack(Phaser.Math.Between(1200, 2200));
-      }
+      mosquito.deactivate();
     });
   }
 
   /**
-   * Attempt to swat the mosquito.
+   * Attempt to swat mosquitoes within hit radius.
+   * Multi-swat support: hits all mosquitoes inside the impact circle in a single slam!
    * @param {number} swatX
    * @param {number} swatY
    * @param {number} hitRadius
-   * @returns {boolean} True if hit
+   * @returns {boolean} True if at least one mosquito was hit
    */
   trySwat(swatX, swatY, hitRadius) {
-    if (this.mosquito.state === MOSQUITO_STATES.DIVING) {
-      const dist = Phaser.Math.Distance.Between(swatX, swatY, this.mosquito.x, this.mosquito.y);
-      if (dist <= (hitRadius + this.mosquito.radius)) {
-        // Successful hit!
-        const hitX = this.mosquito.x;
-        const hitY = this.mosquito.y;
+    const hitMosquitoes = [];
 
-        this.mosquito.kill();
-        this.audioManager.stopMosquitoBuzz();
-        this.audioManager.playSwatHit();
-
-        if (this.callbacks.onWarningEnd) {
-          this.callbacks.onWarningEnd();
+    for (const m of this.mosquitoPool) {
+      if (m.state === MOSQUITO_STATES.DIVING) {
+        const dist = Phaser.Math.Distance.Between(swatX, swatY, m.x, m.y);
+        if (dist <= hitRadius + m.radius) {
+          hitMosquitoes.push(m);
         }
+      }
+    }
+
+    if (hitMosquitoes.length > 0) {
+      for (const m of hitMosquitoes) {
+        const hitX = m.x;
+        const hitY = m.y;
+
+        m.kill(); // stops its buzz voice and sets state to DEAD
 
         if (this.callbacks.onHit) {
           this.callbacks.onHit(hitX, hitY);
         }
-
-        // Schedule next attack
-        if (this.isRunning) {
-          this.scheduleNextAttack(Phaser.Math.Between(1000, 2000));
-        }
-
-        return true;
       }
+
+      this.audioManager.playSwatHit();
+      return true;
     }
+
     return false;
+  }
+
+  /**
+   * Returns the count of active mosquitoes currently in WARNING or DIVING state.
+   * @returns {number}
+   */
+  getActiveCount() {
+    return this.mosquitoPool.filter(
+      (m) =>
+        m.state === MOSQUITO_STATES.WARNING ||
+        m.state === MOSQUITO_STATES.DIVING,
+    ).length;
   }
 
   destroy() {
     this.stop();
-    this.mosquito.destroy();
+    for (const m of this.mosquitoPool) {
+      m.destroy();
+    }
+    this.mosquitoPool = [];
   }
 }

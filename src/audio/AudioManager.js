@@ -3,7 +3,8 @@
  * Web Audio API based procedural sound engine for "Mosquito".
  * Features:
  * - Directional 3D spatialization (HRTF PannerNode with Stereo fallback)
- * - Procedural mosquito buzzing synthesizer with pitch wobble and volume ramping
+ * - Polyphonic procedural mosquito buzzing synthesizer with pitch wobble and volume ramping
+ * - Radically reduced buzzing volume designed for simultaneous multi-mosquito swarms
  * - Procedural tactile SFX: swat hit slap, whoosh miss, bite sting
  * - Zero external audio file dependencies
  */
@@ -20,7 +21,8 @@ export class AudioManager {
   constructor() {
     this.ctx = null;
     this.isUnlocked = false;
-    this.activeBuzz = null;
+    this.activeBuzz = null; // Last active voice (backwards compatibility)
+    this.activeBuzzes = new Set(); // Multi-voice tracking
     this.masterGain = null;
   }
 
@@ -33,7 +35,7 @@ export class AudioManager {
       if (AudioContextClass) {
         this.ctx = new AudioContextClass();
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.9;
+        this.masterGain.gain.value = 0.7; // Controlled master to avoid multi-voice clipping
         this.masterGain.connect(this.ctx.destination);
 
         // Position virtual listener
@@ -64,15 +66,14 @@ export class AudioManager {
 
   /**
    * Starts a procedural mosquito buzz with directional spatialization.
+   * Radically lowered volume so multiple mosquitoes buzzing together form a balanced, pleasant swarm.
    * @param {Object} directionObj - One of DIRECTIONS entries
-   * @param {number} warningDuration - Duration in seconds (2 to 4s)
+   * @param {number} warningDuration - Duration in seconds (1.2 to 2.5s)
+   * @returns {Object} buzzHandle with a stop() method
    */
-  startMosquitoBuzz(directionObj, warningDuration = 3.0) {
+  startMosquitoBuzz(directionObj, warningDuration = 2.0) {
     if (!this.ctx) this.init();
-    if (!this.ctx) return;
-
-    // Stop any existing buzz
-    this.stopMosquitoBuzz();
+    if (!this.ctx) return null;
 
     const now = this.ctx.currentTime;
 
@@ -111,31 +112,33 @@ export class AudioManager {
     filter.frequency.setValueAtTime(directionObj.name === 'TOP' ? 3200 : 2500, now);
     filter.Q.setValueAtTime(2.5, now);
 
-    // Gain node for volume envelope
+    // Gain node for volume envelope - RADICALLY LOWERED FOR SWARMS
+    // peakGain was 0.75, now 0.08 (~-20dB reduction)
     const gainNode = this.ctx.createGain();
-    const startGain = 0.02;
-    const peakGain = 0.75;
+    const startGain = 0.003;
+    const peakGain = 0.08;
     gainNode.gain.setValueAtTime(startGain, now);
-    // Smooth volume progression: increases over warning duration
     gainNode.gain.exponentialRampToValueAtTime(peakGain, now + warningDuration);
 
     // Primary oscillator: fundamental mosquito wing beat (280 Hz)
     const osc1 = this.ctx.createOscillator();
     osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(285, now);
+    // Slight random pitch variation (+/- 8 Hz) per mosquito so they don't phase cancel
+    const freqOffset = (Math.random() * 16) - 8;
+    osc1.frequency.setValueAtTime(285 + freqOffset, now);
 
     // Secondary oscillator: harmonic (570 Hz)
     const osc2 = this.ctx.createOscillator();
     osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(574, now);
+    osc2.frequency.setValueAtTime(574 + freqOffset * 2, now);
 
     // LFO for frequency vibrato / jitter (organic insect buzz)
     const lfo = this.ctx.createOscillator();
     lfo.type = 'sine';
-    lfo.frequency.setValueAtTime(18, now); // 18 Hz wing flutter modulation
+    lfo.frequency.setValueAtTime(17 + Math.random() * 3, now); // ~17-20 Hz wing flutter modulation
 
     const lfoGain = this.ctx.createGain();
-    lfoGain.gain.setValueAtTime(14, now); // +/- 14 Hz pitch wobble
+    lfoGain.gain.setValueAtTime(12, now); // +/- 12 Hz pitch wobble
 
     lfo.connect(lfoGain);
     lfoGain.connect(osc1.frequency);
@@ -146,7 +149,7 @@ export class AudioManager {
     amOsc.type = 'triangle';
     amOsc.frequency.setValueAtTime(32, now);
     const amGain = this.ctx.createGain();
-    amGain.gain.setValueAtTime(0.08, now);
+    amGain.gain.setValueAtTime(0.04, now);
 
     // Connect audio graph
     osc1.connect(filter);
@@ -166,14 +169,22 @@ export class AudioManager {
     lfo.start(now);
     amOsc.start(now);
 
-    this.activeBuzz = {
+    const buzzHandle = {
       osc1,
       osc2,
       lfo,
       amOsc,
       gainNode,
       spatialNode,
+      isStopped: false,
       stop: () => {
+        if (buzzHandle.isStopped) return;
+        buzzHandle.isStopped = true;
+        this.activeBuzzes.delete(buzzHandle);
+        if (this.activeBuzz === buzzHandle) {
+          this.activeBuzz = null;
+        }
+
         try {
           const stopTime = this.ctx.currentTime;
           gainNode.gain.cancelScheduledValues(stopTime);
@@ -198,17 +209,35 @@ export class AudioManager {
       }
     };
 
-    return this.activeBuzz;
+    this.activeBuzzes.add(buzzHandle);
+    this.activeBuzz = buzzHandle;
+
+    return buzzHandle;
   }
 
   /**
-   * Stops active mosquito buzz immediately.
+   * Stops a specific mosquito buzz handle, or all buzzes if no handle provided.
+   * @param {Object} [buzzHandle]
    */
-  stopMosquitoBuzz() {
-    if (this.activeBuzz) {
-      this.activeBuzz.stop();
-      this.activeBuzz = null;
+  stopMosquitoBuzz(buzzHandle) {
+    if (buzzHandle && typeof buzzHandle.stop === 'function') {
+      buzzHandle.stop();
+    } else {
+      this.stopAllMosquitoBuzzes();
     }
+  }
+
+  /**
+   * Stops all active mosquito buzzes simultaneously.
+   */
+  stopAllMosquitoBuzzes() {
+    for (const buzz of Array.from(this.activeBuzzes)) {
+      try {
+        buzz.stop();
+      } catch {}
+    }
+    this.activeBuzzes.clear();
+    this.activeBuzz = null;
   }
 
   /**
@@ -325,7 +354,7 @@ export class AudioManager {
    * Cleans up all audio nodes.
    */
   destroy() {
-    this.stopMosquitoBuzz();
+    this.stopAllMosquitoBuzzes();
     if (this.ctx && this.ctx.state !== 'closed') {
       this.ctx.close();
     }
