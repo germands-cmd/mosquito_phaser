@@ -351,6 +351,24 @@ export class AudioManager {
   }
 
   /**
+   * Suspends the audio context when paused to silence all active buzzes and freeze audio time.
+   */
+  pause() {
+    if (this.ctx && this.ctx.state === 'running') {
+      this.ctx.suspend();
+    }
+  }
+
+  /**
+   * Resumes the audio context when unpaused.
+   */
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  /**
    * Cleans up all audio nodes.
    */
   destroy() {

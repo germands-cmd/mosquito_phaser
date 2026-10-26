@@ -377,6 +377,7 @@ Track the number of successful swats and bites.
 A full scoring system, combo system, progression system, or leaderboard is outside the initial scope.
 
 Final objective: Deliver a runnable Phaser prototype in which the player hears a mosquito approaching, infers its direction from the buzzing, moves the fly swatter shadow toward the incoming threat, and attempts to smash it before it bites.
+
 ### VERSION 1.1
 
 There is a no audio version, where the audio does not matter. In this version instead of audio, will appear on the screen a little red help in order to indicate to the player where the mosquitoes are coming from. This version is selectionable from de main menu.

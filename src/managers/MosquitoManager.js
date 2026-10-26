@@ -9,20 +9,17 @@ export const GAME_MODES = {
   NO_AUDIO: "NO_AUDIO",
 };
 
-export const SPEED_LEVELS = {
-  VERY_SLOW: { key: "VERY_SLOW", label: "Very Slow", minMs: 5400, maxMs: 5800 },
-  SLOW: { key: "SLOW", label: "Slow", minMs: 1000, maxMs: 1300 },
-  NORMAL: { key: "NORMAL", label: "Normal", minMs: 750, maxMs: 1000 },
-  FAST: { key: "FAST", label: "Fast", minMs: 480, maxMs: 800 }, // Baseline
-  SUPER_FAST: {
-    key: "SUPER_FAST",
-    label: "Super Fast",
-    minMs: 280,
-    maxMs: 420,
-  },
+export const DIFFICULTY_LEVELS = {
+  EASY: { key: "EASY", label: "Easy", minMs: 5400, maxMs: 5800 },
+  NORMAL: { key: "NORMAL", label: "Normal", minMs: 3800, maxMs: 4400 },
+  HARD: { key: "HARD", label: "Hard", minMs: 2400, maxMs: 3000 },
 };
 
-export const SPEED_KEYS = ["VERY_SLOW", "SLOW", "NORMAL", "FAST", "SUPER_FAST"];
+export const DIFFICULTY_KEYS = ["EASY", "NORMAL", "HARD"];
+
+// Aliases for backwards compatibility
+export const SPEED_LEVELS = DIFFICULTY_LEVELS;
+export const SPEED_KEYS = DIFFICULTY_KEYS;
 
 /**
  * MosquitoManager.js
@@ -54,7 +51,8 @@ export class MosquitoManager {
     this.waveSize = 3; // X mosquitoes per wave
 
     this.mode = GAME_MODES.AUDIO;
-    this.speedLevel = "FAST";
+    this.difficultyLevel = "NORMAL";
+    this.speedLevel = "NORMAL";
     this.lastDirection = null;
 
     // Pre-populate pool with initial entities
@@ -67,10 +65,15 @@ export class MosquitoManager {
     this.mode = mode;
   }
 
-  setSpeed(speedKey) {
-    if (SPEED_LEVELS[speedKey]) {
-      this.speedLevel = speedKey;
+  setDifficulty(diffKey) {
+    if (DIFFICULTY_LEVELS[diffKey]) {
+      this.difficultyLevel = diffKey;
+      this.speedLevel = diffKey;
     }
+  }
+
+  setSpeed(speedKey) {
+    this.setDifficulty(speedKey);
   }
 
   /**
@@ -259,10 +262,10 @@ export class MosquitoManager {
     const targetPos = this.environment.getRandomSkinTarget(isRightLeg);
 
     // Scale dive duration based on selected speed level
-    const speedConfig = SPEED_LEVELS[this.speedLevel] || SPEED_LEVELS.FAST;
+    const diffConfig = DIFFICULTY_LEVELS[this.difficultyLevel] || DIFFICULTY_LEVELS.NORMAL;
     const diveDurationMs = Phaser.Math.Between(
-      speedConfig.minMs,
-      speedConfig.maxMs,
+      diffConfig.minMs,
+      diffConfig.maxMs,
     );
 
     mosquito.startDive(spawnPos, targetPos, diveDurationMs, (biteX, biteY) => {
