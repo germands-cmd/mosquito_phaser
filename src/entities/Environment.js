@@ -174,6 +174,42 @@ export class Environment {
     return isRight ? { x: 1060, y: 480 } : { x: 300, y: 480 };
   }
 
+  getNearestLeg(position) {
+    const left = this.getLegCenter('left');
+    const right = this.getLegCenter('right');
+    return Phaser.Math.Distance.Between(position.x, position.y, left.x, left.y) <=
+      Phaser.Math.Distance.Between(position.x, position.y, right.x, right.y) ? 'left' : 'right';
+  }
+
+  getLegCenter(legId) {
+    const points = legId === 'right' ? this.rightLegPoints : this.leftLegPoints;
+    const sum = points.reduce((result, point) => ({
+      x: result.x + point.x,
+      y: result.y + point.y
+    }), { x: 0, y: 0 });
+    return { x: sum.x / points.length, y: sum.y / points.length };
+  }
+
+  getOppositeLeg(legId) {
+    return legId === 'right' ? 'left' : 'right';
+  }
+
+  isValidLeg(legId) {
+    return legId === 'left' || legId === 'right';
+  }
+
+  getRandomAttackPosition(legId, config = {}) {
+    const center = this.getLegCenter(legId);
+    const radius = config.dispersionRadius || 0;
+    const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const distance = Phaser.Math.FloatBetween(0, radius);
+    const position = {
+      x: center.x + Math.cos(angle) * distance,
+      y: center.y + Math.sin(angle) * distance
+    };
+    return this.isPointOnLegs(position.x, position.y) ? position : this.getRandomSkinTarget(legId);
+  }
+
   /**
    * Checks if a point lies within the exposed leg colliders.
    * @param {number} x

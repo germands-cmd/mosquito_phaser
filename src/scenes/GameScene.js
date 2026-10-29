@@ -11,6 +11,7 @@ import {
 } from "../managers/MosquitoManager.js";
 import { AbilityManager } from "../abilities/AbilityManager.js";
 import { BloodHealthBar } from "../ui/BloodHealthBar.js";
+import { MOSQUITO_TYPES, MOSQUITO_VISUALS } from "../entities/Mosquito.js";
 
 export const GAME_STATES = {
   READY: "READY",
@@ -43,6 +44,7 @@ export default class GameScene extends Phaser.Scene {
     this.bites = 0;
     this.swats = 0;
     this.debugMode = false;
+    this.enemyTestMode = false;
     this.debugInfo = { direction: "None", duration: "0s" };
 
     // Version 1.1 / 1.2 Settings
@@ -98,7 +100,9 @@ export default class GameScene extends Phaser.Scene {
       {
         onHit: (x, y) => this.handleMosquitoHit(x, y),
         onBite: (x, y, mosquito) => this.handleMosquitoBite(x, y, mosquito),
-        onFeedingDamage: (mosquito, tickCount) => this.handleFeedingDamage(mosquito, tickCount),
+        onFeedingDamage: (mosquito, tickCount, damage) =>
+          this.handleFeedingDamage(mosquito, tickCount, damage),
+        onAreaEffect: (x, y, radius) => this.showBloodExplosion(x, y, radius),
         onWarningStart: (dirData, durationSec) => {
           this.debugInfo = {
             direction: dirData.name,
@@ -162,6 +166,11 @@ export default class GameScene extends Phaser.Scene {
                 m.y,
               );
               if (dist <= hitRadius + m.radius) {
+                if (this.mosquitoManager.isHostProtectedByAttachedParasite(
+                  m, impactX, impactY, hitRadius
+                )) {
+                  continue;
+                }
                 hitMosquitoes.push(m);
               }
             }
@@ -806,7 +815,11 @@ export default class GameScene extends Phaser.Scene {
         `Right Leg Points : 0 - 14 (Magenta)\n` +
         `Mode             : ${this.currentMode}\n` +
         `Difficulty       : ${DIFFICULTY_LEVELS[diffKey]?.label}\n` +
-        `Force Keys       : 6:L 7:TL 8:T 9:TR 0:R\nAbilities        : [1] Bomb, [2] Transfusion (Inputs: Q, W, E, R)`,
+        `Force Keys       : 6:L 7:TL 8:T 9:TR 0:R\n` +
+        `Test Mode        : ${this.enemyTestMode ? "ON" : "OFF"} (T)\n` +
+        `Enemy Tests      : F1 Standard  F2 Incubator  F3 Baby\n` +
+        `                  F4 Coward   F5 Parasite   F6 Zigzag\n` +
+        `Abilities        : [1] Bomb, [2] Transfusion (Inputs: Q, W, E, R)`,
     );
   }
 
@@ -832,6 +845,19 @@ export default class GameScene extends Phaser.Scene {
       }
     });
 
+    this.input.keyboard.on("keydown-T", () => {
+      if (this.gameState !== GAME_STATES.PLAYING) return;
+      this.enemyTestMode = !this.enemyTestMode;
+      if (this.enemyTestMode) {
+        this.mosquitoManager.stop();
+      } else {
+        this.mosquitoManager.start();
+      }
+      this.debugMode = true;
+      this.debugContainer.setVisible(true);
+      this.updateDebugOverlay();
+    });
+
     // Space key to start game directly from ready menu
     this.input.keyboard.on("keydown-SPACE", () => {
       if (this.gameState === GAME_STATES.READY) {
@@ -852,22 +878,48 @@ export default class GameScene extends Phaser.Scene {
         "RIGHT",
         "ONE",
         "TWO",
+        "NUMPAD_ONE",
+        "NUMPAD_TWO",
+        "NUMPAD_THREE",
+        "NUMPAD_FOUR",
+        "NUMPAD_FIVE",
+        "NUMPAD_SIX",
       ]);
     }
 
     // Active Ability Activation Keys (1 and 2, including Numpad)
-    ["ONE", "NUMPAD_ONE"].forEach((key) => {
+    ["ONE"].forEach((key) => {
       this.input.keyboard.on(`keydown-${key}`, () => {
         if (this.gameState === GAME_STATES.PLAYING) {
           this.abilityManager.activateSlot(0); // Pressure Bomb
         }
       });
     });
-    ["TWO", "NUMPAD_TWO"].forEach((key) => {
+    ["TWO"].forEach((key) => {
       this.input.keyboard.on(`keydown-${key}`, () => {
         if (this.gameState === GAME_STATES.PLAYING) {
           this.abilityManager.activateSlot(1); // Reverse Transfusion
         }
+      });
+    });
+
+    const testEnemies = [
+      ["NUMPAD_ONE", MOSQUITO_TYPES.STANDARD],
+      ["NUMPAD_TWO", MOSQUITO_TYPES.INCUBATOR],
+      ["NUMPAD_THREE", MOSQUITO_TYPES.BABY],
+      ["NUMPAD_FOUR", MOSQUITO_TYPES.COWARD],
+      ["NUMPAD_FIVE", MOSQUITO_TYPES.PARASITE],
+      ["NUMPAD_SIX", MOSQUITO_TYPES.ZIGZAG],
+    ];
+    testEnemies.forEach(([key, type]) => {
+      this.input.keyboard.on(`keydown-${key}`, () => {
+        if (this.gameState !== GAME_STATES.PLAYING || !this.enemyTestMode) return;
+        this.mosquitoManager.spawnTestEnemy(type, "TOP");
+        this.debugInfo = {
+          direction: MOSQUITO_VISUALS[type].label,
+          duration: "test",
+        };
+        this.updateDebugOverlay();
       });
     });
 
@@ -972,6 +1024,29 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  showBloodExplosion(x, y, radius) {
+      const explosion = this.add.graphics().setDepth(22);
+      const state = { radius: Math.max(12, radius * 0.2), alpha: 0.9 };
+      this.bloodEmitter.emitParticleAt(x, y, 28);
+      this.tweens.add({
+        targets: state,
+        radius,
+        alpha: 0,
+        duration: 260,
+        ease: "Cubic.easeOut",
+        onUpdate: () => {
+          explosion.clear();
+          explosion.fillStyle(0xa51628, state.alpha * 0.28);
+          explosion.fillCircle(x, y, state.radius);
+          explosion.lineStyle(7, 0xff5264, state.alpha);
+          explosion.strokeCircle(x, y, state.radius);
+          explosion.lineStyle(2, 0xffd0d0, state.alpha * 0.8);
+          explosion.strokeCircle(x, y, Math.max(0, state.radius - 10));
+        },
+        onComplete: () => explosion.destroy(),
+      });
+  }
+
   handleMosquitoBite(x, y, mosquito) {
     if (this.abilityManager && this.abilityManager.isInvulnerable()) {
       return; // Player invulnerable while entering sequence!
@@ -1000,12 +1075,12 @@ export default class GameScene extends Phaser.Scene {
    * @param {import('../entities/Mosquito.js').Mosquito} mosquito
    * @param {number} tickCount - Number of damage ticks fired by this mosquito (1-based)
    */
-  handleFeedingDamage(mosquito, tickCount) {
+  handleFeedingDamage(mosquito, tickCount, damage = 1) {
     if (this.gameState !== GAME_STATES.PLAYING) return;
     if (this.abilityManager && this.abilityManager.isInvulnerable()) return;
 
     // Deduct 1 HP per full second
-    this.health = Math.max(0, this.health - 1);
+    this.health = Math.max(0, this.health - damage);
     this.bloodHealthBar.setHealth(this.health, this.maxHealth);
 
     // Soft damage flash feedback — very subtle pale red wash
@@ -1060,6 +1135,9 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    if (this.mosquitoManager) {
+      this.mosquitoManager.update(time, delta);
+    }
     if (this.bloodHealthBar) {
       this.bloodHealthBar.update(delta);
     }

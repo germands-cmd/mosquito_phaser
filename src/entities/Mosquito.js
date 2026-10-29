@@ -9,6 +9,24 @@ export const MOSQUITO_STATES = {
   DEAD: 'DEAD'
 };
 
+export const MOSQUITO_TYPES = {
+  STANDARD: 'standard',
+  INCUBATOR: 'incubator',
+  BABY: 'baby',
+  COWARD: 'coward',
+  PARASITE: 'parasite',
+  ZIGZAG: 'zigzag'
+};
+
+export const MOSQUITO_VISUALS = {
+  [MOSQUITO_TYPES.STANDARD]: { color: 0xf2c94c, accent: 0xffe58a, label: 'STANDARD' },
+  [MOSQUITO_TYPES.INCUBATOR]: { color: 0xf2994a, accent: 0xffc078, label: 'INCUBATOR' },
+  [MOSQUITO_TYPES.BABY]: { color: 0x56ccf2, accent: 0xb9efff, label: 'BABY' },
+  [MOSQUITO_TYPES.COWARD]: { color: 0xeb5757, accent: 0xff9b9b, label: 'COWARD' },
+  [MOSQUITO_TYPES.PARASITE]: { color: 0xbb6bd9, accent: 0xe0a9f2, label: 'PARASITE' },
+  [MOSQUITO_TYPES.ZIGZAG]: { color: 0x6fcf97, accent: 0xb5f2cb, label: 'ZIGZAG' }
+};
+
 /**
  * Mosquito.js
  * Individual mosquito entity:
@@ -28,6 +46,12 @@ export class Mosquito {
     this.x = -100;
     this.y = -100;
     this.radius = 12; // Collision radius
+    this.type = MOSQUITO_TYPES.STANDARD;
+    this.maxHealth = 1;
+    this.health = 1;
+    this.attackDamagePerSecond = 1;
+    this.targetLeg = null;
+    this.onDeath = null;
     this.buzzHandle = null; // Associated audio voice handle
 
     this.container = this.scene.add.container(-100, -100).setDepth(15).setVisible(false);
@@ -55,11 +79,78 @@ export class Mosquito {
    * @returns {boolean}
    */
   isSwattable() {
-    return this.state === MOSQUITO_STATES.DIVING || this.state === MOSQUITO_STATES.FEEDING;
+    return this.isVulnerable() && (
+      this.state === MOSQUITO_STATES.DIVING ||
+      this.state === MOSQUITO_STATES.FEEDING
+    );
+  }
+
+  isVulnerable() {
+    return this.state === MOSQUITO_STATES.DIVING ||
+      this.state === MOSQUITO_STATES.FEEDING;
+  }
+
+  isAlive() {
+    return this.state !== MOSQUITO_STATES.DEAD &&
+      this.state !== MOSQUITO_STATES.INACTIVE;
+  }
+
+  configure(config = {}) {
+    this.type = config.type || MOSQUITO_TYPES.STANDARD;
+    this.maxHealth = Math.max(1, config.maxHealth ?? 1);
+    this.health = this.maxHealth;
+    this.attackDamagePerSecond = Math.max(0, config.attackDamagePerSecond ?? 1);
+    this.radius = Math.max(1, config.radius ?? 12);
+    this.container.setScale(config.visualScale ?? 1);
+    this.applyVisualStyle();
+    return this;
+  }
+
+  applyVisualStyle() {
+    const visual = MOSQUITO_VISUALS[this.type] || MOSQUITO_VISUALS[MOSQUITO_TYPES.STANDARD];
+    if (this.typeMarker) {
+      this.typeMarker.clear();
+      this.typeMarker.fillStyle(visual.color, 0.95);
+      this.typeMarker.lineStyle(1.5, visual.accent, 1);
+      if (this.type === MOSQUITO_TYPES.INCUBATOR) {
+        this.typeMarker.fillCircle(-5, 0, 5);
+        this.typeMarker.strokeCircle(-5, 0, 7);
+      } else if (this.type === MOSQUITO_TYPES.BABY) {
+        this.typeMarker.fillTriangle(-9, 0, -3, -5, -3, 5);
+        this.typeMarker.strokeTriangle(-9, 0, -3, -5, -3, 5);
+      } else if (this.type === MOSQUITO_TYPES.COWARD) {
+        this.typeMarker.fillTriangle(-10, 0, -5, -5, 0, 0);
+        this.typeMarker.fillTriangle(-10, 0, -5, 5, 0, 0);
+        this.typeMarker.strokeTriangle(-10, 0, -5, -5, 0, 0);
+        this.typeMarker.strokeTriangle(-10, 0, -5, 5, 0, 0);
+      } else if (this.type === MOSQUITO_TYPES.PARASITE) {
+        this.typeMarker.strokeCircle(-5, 0, 5);
+      } else if (this.type === MOSQUITO_TYPES.ZIGZAG) {
+        this.typeMarker.fillTriangle(-10, -4, -4, 0, -10, 4);
+        this.typeMarker.fillTriangle(-2, -4, 4, 0, -2, 4);
+        this.typeMarker.strokeTriangle(-10, -4, -4, 0, -10, 4);
+        this.typeMarker.strokeTriangle(-2, -4, 4, 0, -2, 4);
+      } else {
+        this.typeMarker.fillCircle(-5, 0, 2.5);
+        this.typeMarker.strokeCircle(-5, 0, 4);
+      }
+    }
+  }
+
+  takeDamage(amount = 1, source = 'combat') {
+    if (!this.isVulnerable() || amount <= 0) return false;
+    this.health = Math.max(0, this.health - amount);
+    if (this.health <= 0) {
+      this.kill(source);
+    } else if (this.onNonlethalDamage) {
+      this.onNonlethalDamage(this, source);
+    }
+    return true;
   }
 
   buildGraphics() {
     const g = this.scene.add.graphics();
+    this.bodyGraphics = g;
 
     // Proboscis (needle pointing to the right / 0 rads)
     g.lineStyle(2, 0x111111, 1);
@@ -120,6 +211,12 @@ export class Mosquito {
     this.wingRight.lineStyle(1, 0x688999, 0.8);
     this.wingRight.strokeEllipse(1, 7, 10, 5);
     this.container.add(this.wingRight);
+
+    this.typeMarker = this.scene.add.graphics();
+    this.typeMarker.fillStyle(0xffffff, 0.9);
+    this.typeMarker.fillCircle(-5, 0, 2.5);
+    this.typeMarker.setDepth(-1);
+    this.container.addAt(this.typeMarker, 0);
   }
 
   /**
@@ -281,7 +378,8 @@ export class Mosquito {
   /**
    * Mark as dead and hide. Stops any feeding, buzzing, and tweens.
    */
-  kill() {
+  kill(source = 'combat') {
+    if (this.state === MOSQUITO_STATES.DEAD) return;
     this.stopFeeding();
     this.state = MOSQUITO_STATES.DEAD;
     if (this.diveTween) {
@@ -295,6 +393,11 @@ export class Mosquito {
       this.buzzHandle = null;
     }
     this.container.setVisible(false);
+    if (this.onDeath) {
+      const callback = this.onDeath;
+      this.onDeath = null;
+      callback(this, source);
+    }
   }
 
   /**
@@ -303,6 +406,10 @@ export class Mosquito {
   deactivate() {
     this.stopFeeding();
     this.state = MOSQUITO_STATES.INACTIVE;
+    this.health = this.maxHealth;
+    this.targetLeg = null;
+    this.onDeath = null;
+    this.onNonlethalDamage = null;
     if (this.diveTween) {
       this.diveTween.stop();
       this.diveTween = null;
