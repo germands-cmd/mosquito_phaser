@@ -7,18 +7,31 @@ import Phaser from 'phaser';
  * - Elevated swatter paddle & handle following cursor
  * - Punchy swat slam animation on left click
  * - Configurable collision hit radius
+ * - Prepared ability visual aura (glow on shadow and paddle)
  */
 export class Swatter {
   /**
    * @param {Phaser.Scene} scene
    * @param {number} hitRadius
+   * @param {Object} [config]
+   * @param {number} [config.strikeDurationMs=65]  - Slam-down tween duration in ms
+   * @param {number} [config.returnDurationMs=160] - Bounce-back tween duration in ms
    */
-  constructor(scene, hitRadius = 35) {
+  constructor(scene, hitRadius = 35, config = {}) {
     this.scene = scene;
     this.hitRadius = hitRadius;
 
+    // Strike timing — exposed so frenzy speed-boost can halve them
+    this.strikeDurationMs = config.strikeDurationMs ?? 65;
+    this.returnDurationMs = config.returnDurationMs ?? 160;
+    // Active (possibly boosted) durations used by strike()
+    this._strikeDuration = this.strikeDurationMs;
+    this._returnDuration = this.returnDurationMs;
+
     this.isSwatting = false;
     this.cooldown = false;
+    this.isPrepared = false;
+    this.preparedColor = 0xffaa22;
 
     // Create container and graphics
     this.shadowGraphics = this.scene.add.graphics().setDepth(10);
@@ -67,6 +80,33 @@ export class Swatter {
     this.swatterContainer.setPosition(this.x + 18, this.y - 30);
   }
 
+  /**
+   * Applies or removes an attack speed multiplier during frenzy.
+   * A factor of 2.0 halves the strike and return durations (×2 attack rate).
+   * Call with factor=1.0 (or no argument) to restore normal speed.
+   *
+   * @param {number} [factor=1.0]
+   */
+  setSpeedBoost(factor = 1.0) {
+    this._strikeDuration = Math.round(this.strikeDurationMs / factor);
+    this._returnDuration = Math.round(this.returnDurationMs / factor);
+  }
+
+  /**
+   * Sets or clears the prepared ability visual state.
+   * @param {boolean} isPrepared
+   * @param {string|number} [color='#ffaa22']
+   */
+  setPreparedVisual(isPrepared, color = '#ffaa22') {
+    this.isPrepared = isPrepared;
+    if (typeof color === 'string') {
+      this.preparedColor = Phaser.Display.Color.HexStringToColor(color).color;
+    } else {
+      this.preparedColor = color;
+    }
+    this.drawShadow();
+  }
+
   drawShadow() {
     this.shadowGraphics.clear();
 
@@ -74,13 +114,22 @@ export class Swatter {
     this.shadowGraphics.fillStyle(0x0a0505, 0.45);
     this.shadowGraphics.fillRoundedRect(this.x - 30, this.y - 35, 60, 70, 10);
 
-    // Thin inner rim
-    this.shadowGraphics.lineStyle(2, 0x000000, 0.6);
-    this.shadowGraphics.strokeRoundedRect(this.x - 30, this.y - 35, 60, 70, 10);
+    if (this.isPrepared) {
+      // High-visibility ability aura around impact shadow
+      this.shadowGraphics.lineStyle(3, this.preparedColor, 0.95);
+      this.shadowGraphics.strokeRoundedRect(this.x - 32, this.y - 37, 64, 74, 12);
+
+      this.shadowGraphics.fillStyle(this.preparedColor, 0.15);
+      this.shadowGraphics.fillRoundedRect(this.x - 30, this.y - 35, 60, 70, 10);
+    } else {
+      // Thin inner rim
+      this.shadowGraphics.lineStyle(2, 0x000000, 0.6);
+      this.shadowGraphics.strokeRoundedRect(this.x - 30, this.y - 35, 60, 70, 10);
+    }
 
     // Crosshairs / center aiming dot
-    this.shadowGraphics.fillStyle(0xffffff, 0.5);
-    this.shadowGraphics.fillCircle(this.x, this.y, 3);
+    this.shadowGraphics.fillStyle(this.isPrepared ? this.preparedColor : 0xffffff, 0.7);
+    this.shadowGraphics.fillCircle(this.x, this.y, this.isPrepared ? 4 : 3);
   }
 
   /**
@@ -120,7 +169,7 @@ export class Swatter {
       scaleX: 0.95,
       scaleY: 0.95,
       angle: 0,
-      duration: 65,
+      duration: this._strikeDuration,
       ease: 'Quad.easeIn',
       onComplete: () => {
         // Execute impact callback right at contact
@@ -136,7 +185,7 @@ export class Swatter {
           scaleX: 1.08,
           scaleY: 1.08,
           angle: -5,
-          duration: 160,
+          duration: this._returnDuration,
           ease: 'Back.easeOut',
           onComplete: () => {
             this.isSwatting = false;

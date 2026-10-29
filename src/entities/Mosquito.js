@@ -4,7 +4,8 @@ export const MOSQUITO_STATES = {
   INACTIVE: 'INACTIVE',
   WARNING: 'WARNING',
   DIVING: 'DIVING',
-  BITING: 'BITING',
+  FEEDING: 'FEEDING',
+  BITING: 'FEEDING', // Backwards-compatible alias
   DEAD: 'DEAD'
 };
 
@@ -42,6 +43,19 @@ export class Mosquito {
     });
 
     this.diveTween = null;
+    this.feedingDamageTimer = null;
+    this.wingTwitchTimer = null;
+    this.wingTwitchTween = null;
+    this.feedingTickCount = 0; // Tracks how many damage ticks have fired for this feeding session
+  }
+
+  /**
+   * Returns true if mosquito is currently vulnerable to player swats or abilities.
+   * Both diving mosquitoes and attached feeding mosquitoes can be killed.
+   * @returns {boolean}
+   */
+  isSwattable() {
+    return this.state === MOSQUITO_STATES.DIVING || this.state === MOSQUITO_STATES.FEEDING;
   }
 
   buildGraphics() {
@@ -116,11 +130,17 @@ export class Mosquito {
    * @param {Function} onReachTarget
    */
   startDive(spawnPos, targetPos, diveDurationMs, onReachTarget) {
+    this.stopFeeding();
     this.state = MOSQUITO_STATES.DIVING;
     this.x = spawnPos.x;
     this.y = spawnPos.y;
     this.container.setPosition(this.x, this.y);
     this.container.setVisible(true);
+
+    // Resume normal flight wing-flapping animation
+    if (this.wingFlapTween && this.wingFlapTween.isPaused()) {
+      this.wingFlapTween.resume();
+    }
 
     // Point proboscis toward target
     const angle = Phaser.Math.Angle.Between(spawnPos.x, spawnPos.y, targetPos.x, targetPos.y);
@@ -138,7 +158,6 @@ export class Mosquito {
       },
       onComplete: () => {
         if (this.state === MOSQUITO_STATES.DIVING) {
-          this.state = MOSQUITO_STATES.BITING;
           if (onReachTarget) {
             onReachTarget(targetPos.x, targetPos.y);
           }
@@ -148,9 +167,122 @@ export class Mosquito {
   }
 
   /**
-   * Mark as dead and hide. Stops any linked buzz voice.
+   * Puts mosquito into feeding state attached to the player's leg:
+   * - Ceases continuous buzzing audio completely
+   * - Stops high-speed flight wing flap
+   * - Starts gentle, randomized wing micro-movements
+   * - Deals 1 discrete damage every full second until swatted/killed
+   * @param {Function} onDamageTick - Callback invoked every full 1000ms
+   */
+  startFeeding(onDamageTick) {
+    this.stopFeeding();
+    this.state = MOSQUITO_STATES.FEEDING;
+
+    // 1. Stop high-speed flight wing flap and return wings to resting scale
+    if (this.wingFlapTween) {
+      this.wingFlapTween.pause();
+    }
+    if (this.wingLeft && this.wingRight) {
+      this.wingLeft.setScale(1, 1).setAngle(0);
+      this.wingRight.setScale(1, 1).setAngle(0);
+    }
+
+    // 2. Stop buzzing sound completely while feeding
+    if (this.buzzHandle) {
+      if (typeof this.buzzHandle.stop === 'function') {
+        this.buzzHandle.stop();
+      }
+      this.buzzHandle = null;
+    }
+
+    // 3. Start subtle, gentle randomized wing twitch loop
+    this.scheduleWingTwitch();
+
+    // 4. Start discrete 1-second damage interval timer
+    this.feedingTickCount = 0;
+    this.feedingDamageTimer = this.scene.time.addEvent({
+      delay: 1000,
+      loop: true,
+      callback: () => {
+        if (this.state === MOSQUITO_STATES.FEEDING && onDamageTick) {
+          this.feedingTickCount++;
+          onDamageTick(this, this.feedingTickCount);
+        }
+      }
+    });
+  }
+
+  /**
+   * Schedules a subtle, natural wing twitch after a randomized delay.
+   */
+  scheduleWingTwitch() {
+    if (this.state !== MOSQUITO_STATES.FEEDING) return;
+
+    const delayMs = Phaser.Math.Between(700, 2200);
+    this.wingTwitchTimer = this.scene.time.delayedCall(delayMs, () => {
+      if (this.state !== MOSQUITO_STATES.FEEDING) return;
+      this.executeSubtleWingTwitch();
+      this.scheduleWingTwitch();
+    });
+  }
+
+  /**
+   * Executes a brief, delicate wing micro-movement that looks organic and soft.
+   */
+  executeSubtleWingTwitch() {
+    if (this.state !== MOSQUITO_STATES.FEEDING) return;
+    if (!this.wingLeft || !this.wingRight) return;
+
+    if (this.wingTwitchTween) {
+      this.wingTwitchTween.stop();
+    }
+
+    const twitchDuration = Phaser.Math.Between(80, 130);
+    const scaleDip = Phaser.Math.FloatBetween(0.82, 0.88);
+
+    this.wingTwitchTween = this.scene.tweens.add({
+      targets: [this.wingLeft, this.wingRight],
+      scaleY: scaleDip,
+      yoyo: true,
+      duration: twitchDuration,
+      ease: 'Sine.easeInOut',
+      onComplete: () => {
+        if (this.wingLeft && this.wingRight) {
+          this.wingLeft.setScale(1, 1);
+          this.wingRight.setScale(1, 1);
+        }
+      }
+    });
+  }
+
+  /**
+   * Stops feeding timers, twitches, and clears references.
+   */
+  stopFeeding() {
+    if (this.feedingDamageTimer) {
+      this.feedingDamageTimer.remove();
+      this.feedingDamageTimer = null;
+    }
+    if (this.wingTwitchTimer) {
+      this.wingTwitchTimer.remove();
+      this.wingTwitchTimer = null;
+    }
+    if (this.wingTwitchTween) {
+      this.wingTwitchTween.stop();
+      this.wingTwitchTween = null;
+    }
+    if (this.wingLeft && this.wingRight) {
+      this.wingLeft.setScale(1, 1).setAngle(0);
+      this.wingRight.setScale(1, 1).setAngle(0);
+    }
+    this.feedingTickCount = 0;
+  }
+
+  /**
+   * Mark as dead and hide. Stops any feeding, buzzing, and tweens.
    */
   kill() {
+    this.stopFeeding();
     this.state = MOSQUITO_STATES.DEAD;
     if (this.diveTween) {
       this.diveTween.stop();
@@ -166,9 +298,10 @@ export class Mosquito {
   }
 
   /**
-   * Deactivate and reset for pooling. Stops any linked buzz voice.
+   * Deactivate and reset for pooling. Stops any feeding and buzzing.
    */
   deactivate() {
+    this.stopFeeding();
     this.state = MOSQUITO_STATES.INACTIVE;
     if (this.diveTween) {
       this.diveTween.stop();

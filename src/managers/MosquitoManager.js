@@ -270,19 +270,24 @@ export class MosquitoManager {
 
     mosquito.startDive(spawnPos, targetPos, diveDurationMs, (biteX, biteY) => {
       // Mosquito reached skin without being swatted
-      if (mosquito.buzzHandle) {
-        mosquito.buzzHandle.stop();
-        mosquito.buzzHandle = null;
-      }
-
-      this.audioManager.playBite();
-      this.environment.addBiteMark(biteX, biteY);
+      // Note: addBiteMark and playBite are deferred to first damage tick
+      // so the visual only appears after actual damage is confirmed.
 
       if (this.callbacks.onBite) {
-        this.callbacks.onBite(biteX, biteY);
+        this.callbacks.onBite(biteX, biteY, mosquito);
       }
 
-      mosquito.deactivate();
+      // Enter FEEDING state: attaches to leg and deals 1 damage every full second
+      mosquito.startFeeding((m, tickCount) => {
+        // On the very first tick, show bite mark and play bite sound
+        if (tickCount === 1) {
+          this.audioManager.playBite();
+          this.environment.addBiteMark(biteX, biteY);
+        }
+        if (this.callbacks.onFeedingDamage) {
+          this.callbacks.onFeedingDamage(m, tickCount);
+        }
+      });
     });
   }
 
@@ -298,7 +303,7 @@ export class MosquitoManager {
     const hitMosquitoes = [];
 
     for (const m of this.mosquitoPool) {
-      if (m.state === MOSQUITO_STATES.DIVING) {
+      if (m.isSwattable()) {
         const dist = Phaser.Math.Distance.Between(swatX, swatY, m.x, m.y);
         if (dist <= hitRadius + m.radius) {
           hitMosquitoes.push(m);
@@ -326,14 +331,15 @@ export class MosquitoManager {
   }
 
   /**
-   * Returns the count of active mosquitoes currently in WARNING or DIVING state.
+   * Returns the count of active mosquitoes currently in WARNING, DIVING, or FEEDING state.
    * @returns {number}
    */
   getActiveCount() {
     return this.mosquitoPool.filter(
       (m) =>
         m.state === MOSQUITO_STATES.WARNING ||
-        m.state === MOSQUITO_STATES.DIVING,
+        m.state === MOSQUITO_STATES.DIVING ||
+        m.state === MOSQUITO_STATES.FEEDING,
     ).length;
   }
 

@@ -6,6 +6,7 @@
  * - Polyphonic procedural mosquito buzzing synthesizer with pitch wobble and volume ramping
  * - Radically reduced buzzing volume designed for simultaneous multi-mosquito swarms
  * - Procedural tactile SFX: swat hit slap, whoosh miss, bite sting
+ * - Procedural ability SFX: activation time-dilation, sequence input tick, fail buzz, prepared chord, pressure bomb, transfusion zap
  * - Zero external audio file dependencies
  */
 
@@ -24,6 +25,7 @@ export class AudioManager {
     this.activeBuzz = null; // Last active voice (backwards compatibility)
     this.activeBuzzes = new Set(); // Multi-voice tracking
     this.masterGain = null;
+    this.isBulletTimeAudio = false;
   }
 
   /**
@@ -107,16 +109,17 @@ export class AudioManager {
     }
 
     // Filter to shape insect buzz tone
+    const baseFilterFreq = directionObj.name === 'TOP' ? 3200 : 2500;
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(directionObj.name === 'TOP' ? 3200 : 2500, now);
+    filter.frequency.setValueAtTime(this.isBulletTimeAudio ? 350 : baseFilterFreq, now);
     filter.Q.setValueAtTime(2.5, now);
 
     // Gain node for volume envelope - RADICALLY LOWERED FOR SWARMS
     // peakGain was 0.75, now 0.08 (~-20dB reduction)
     const gainNode = this.ctx.createGain();
-    const startGain = 0.003;
-    const peakGain = 0.08;
+    const startGain = this.isBulletTimeAudio ? 0.001 : 0.003;
+    const peakGain = this.isBulletTimeAudio ? 0.004 : 0.08;
     gainNode.gain.setValueAtTime(startGain, now);
     gainNode.gain.exponentialRampToValueAtTime(peakGain, now + warningDuration);
 
@@ -125,12 +128,14 @@ export class AudioManager {
     osc1.type = 'sawtooth';
     // Slight random pitch variation (+/- 8 Hz) per mosquito so they don't phase cancel
     const freqOffset = (Math.random() * 16) - 8;
-    osc1.frequency.setValueAtTime(285 + freqOffset, now);
+    const baseFreq1 = 285 + freqOffset;
+    osc1.frequency.setValueAtTime(this.isBulletTimeAudio ? 110 : baseFreq1, now);
 
     // Secondary oscillator: harmonic (570 Hz)
     const osc2 = this.ctx.createOscillator();
     osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(574 + freqOffset * 2, now);
+    const baseFreq2 = 574 + freqOffset * 2;
+    osc2.frequency.setValueAtTime(this.isBulletTimeAudio ? 220 : baseFreq2, now);
 
     // LFO for frequency vibrato / jitter (organic insect buzz)
     const lfo = this.ctx.createOscillator();
@@ -174,8 +179,13 @@ export class AudioManager {
       osc2,
       lfo,
       amOsc,
+      filter,
       gainNode,
       spatialNode,
+      baseFreq1,
+      baseFreq2,
+      baseFilterFreq,
+      peakGain: 0.08,
       isStopped: false,
       stop: () => {
         if (buzzHandle.isStopped) return;
@@ -216,6 +226,77 @@ export class AudioManager {
   }
 
   /**
+   * Enters slow-motion bullet-time audio:
+   * Progressively ramps down mosquito buzz volume by 95% and drops pitch & filter cutoff
+   * to create an immersive, muffled bullet-time atmosphere.
+   * @param {number} [durationSec=0.15]
+   */
+  enterSlowMotionAudio(durationSec = 0.15) {
+    if (!this.ctx) return;
+    this.isBulletTimeAudio = true;
+    const now = this.ctx.currentTime;
+
+    for (const buzz of this.activeBuzzes) {
+      if (buzz.isStopped) continue;
+      try {
+        // 1. 95% volume reduction
+        buzz.gainNode.gain.cancelScheduledValues(now);
+        buzz.gainNode.gain.setValueAtTime(buzz.gainNode.gain.value, now);
+        buzz.gainNode.gain.linearRampToValueAtTime(0.004, now + durationSec);
+
+        // 2. Pitch drop to deep bass
+        buzz.osc1.frequency.cancelScheduledValues(now);
+        buzz.osc1.frequency.setValueAtTime(buzz.osc1.frequency.value, now);
+        buzz.osc1.frequency.linearRampToValueAtTime(110, now + durationSec);
+
+        buzz.osc2.frequency.cancelScheduledValues(now);
+        buzz.osc2.frequency.setValueAtTime(buzz.osc2.frequency.value, now);
+        buzz.osc2.frequency.linearRampToValueAtTime(220, now + durationSec);
+
+        // 3. Muffled underwater low-pass filter
+        buzz.filter.frequency.cancelScheduledValues(now);
+        buzz.filter.frequency.setValueAtTime(buzz.filter.frequency.value, now);
+        buzz.filter.frequency.linearRampToValueAtTime(350, now + durationSec);
+      } catch {}
+    }
+  }
+
+  /**
+   * Exits slow-motion bullet-time audio:
+   * Smoothly restores mosquito buzz volume and pitch back to standard levels.
+   * @param {number} [durationSec=0.15]
+   */
+  exitSlowMotionAudio(durationSec = 0.15) {
+    if (!this.ctx) return;
+    this.isBulletTimeAudio = false;
+    const now = this.ctx.currentTime;
+
+    for (const buzz of this.activeBuzzes) {
+      if (buzz.isStopped) continue;
+      try {
+        // 1. Restore volume
+        buzz.gainNode.gain.cancelScheduledValues(now);
+        buzz.gainNode.gain.setValueAtTime(buzz.gainNode.gain.value, now);
+        buzz.gainNode.gain.linearRampToValueAtTime(buzz.peakGain || 0.08, now + durationSec);
+
+        // 2. Restore pitch
+        buzz.osc1.frequency.cancelScheduledValues(now);
+        buzz.osc1.frequency.setValueAtTime(buzz.osc1.frequency.value, now);
+        buzz.osc1.frequency.linearRampToValueAtTime(buzz.baseFreq1 || 285, now + durationSec);
+
+        buzz.osc2.frequency.cancelScheduledValues(now);
+        buzz.osc2.frequency.setValueAtTime(buzz.osc2.frequency.value, now);
+        buzz.osc2.frequency.linearRampToValueAtTime(buzz.baseFreq2 || 574, now + durationSec);
+
+        // 3. Restore low-pass filter
+        buzz.filter.frequency.cancelScheduledValues(now);
+        buzz.filter.frequency.setValueAtTime(buzz.filter.frequency.value, now);
+        buzz.filter.frequency.linearRampToValueAtTime(buzz.baseFilterFreq || 2800, now + durationSec);
+      } catch {}
+    }
+  }
+
+  /**
    * Stops a specific mosquito buzz handle, or all buzzes if no handle provided.
    * @param {Object} [buzzHandle]
    */
@@ -231,6 +312,7 @@ export class AudioManager {
    * Stops all active mosquito buzzes simultaneously.
    */
   stopAllMosquitoBuzzes() {
+    this.isBulletTimeAudio = false;
     for (const buzz of Array.from(this.activeBuzzes)) {
       try {
         buzz.stop();
@@ -351,6 +433,175 @@ export class AudioManager {
   }
 
   /**
+   * Whoosh / time-dilation sound entering slow-motion ability sequence.
+   */
+  playAbilityActivate() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(110, now + 0.25);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.26);
+  }
+
+  /**
+   * Crisp confirmation tick on correct directional arrow input.
+   */
+  playSequenceStep() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(660, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.06);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.06);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.07);
+  }
+
+  /**
+   * Low dissonant buzzer on mistake or sequence timeout.
+   */
+  playSequenceFail() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(160, now);
+    osc.frequency.linearRampToValueAtTime(110, now + 0.22);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.23);
+  }
+
+  /**
+   * Ascending power-up chord when ability is successfully prepared.
+   */
+  playAbilityPrepared() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    [440, 554, 659, 880].forEach((freq, i) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.04);
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.18, now + i * 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.04 + 0.16);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now + i * 0.04);
+      osc.stop(now + i * 0.04 + 0.17);
+    });
+  }
+
+  /**
+   * Heavy cartoon pressure bomb shockwave explosion.
+   */
+  playPressureBomb() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const subOsc = this.ctx.createOscillator();
+    subOsc.type = 'sine';
+    subOsc.frequency.setValueAtTime(180, now);
+    subOsc.frequency.exponentialRampToValueAtTime(35, now + 0.35);
+
+    const subGain = this.ctx.createGain();
+    subGain.gain.setValueAtTime(0.7, now);
+    subGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+    subOsc.connect(subGain);
+    subGain.connect(this.masterGain);
+
+    subOsc.start(now);
+    subOsc.stop(now + 0.36);
+
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.25);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(600, now);
+    filter.frequency.exponentialRampToValueAtTime(80, now + 0.25);
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.5, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(this.masterGain);
+
+    noise.start(now);
+  }
+
+  /**
+   * Crackling electric siphon zap for reverse transfusion energy jumps.
+   */
+  playReverseTransfusionZap() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(1200 + Math.random() * 400, now);
+    osc.frequency.exponentialRampToValueAtTime(300, now + 0.12);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1500, now);
+    filter.Q.setValueAtTime(4.0, now);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.35, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.13);
+  }
+
+  /**
    * Suspends the audio context when paused to silence all active buzzes and freeze audio time.
    */
   pause() {
@@ -366,6 +617,81 @@ export class AudioManager {
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
+  }
+
+  /**
+   * Short ascending chime played the moment the stress bar reaches 100%.
+   * Uses a quick three-note arpeggio to communicate "charge ready".
+   */
+  playStressFull() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    [440, 660, 880].forEach((freq, i) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.055);
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.22, now + i * 0.055);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.055 + 0.14);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now + i * 0.055);
+      osc.stop(now + i * 0.055 + 0.15);
+    });
+  }
+
+  /**
+   * Intense ascending roar played when the player enters frenzy.
+   * Sawtooth sweep with a brief noise layer for a "power surge" feel.
+   */
+  playFrenzyStart() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+
+    // Rising sawtooth sweep
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(80, now);
+    osc.frequency.exponentialRampToValueAtTime(520, now + 0.38);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(600, now);
+    filter.frequency.exponentialRampToValueAtTime(3200, now + 0.38);
+    filter.Q.setValueAtTime(3.0, now);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.45, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.42);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.43);
+
+    // Short noise burst for impact
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.08);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.3));
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.3, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+
+    noise.connect(noiseGain);
+    noiseGain.connect(this.masterGain);
+    noise.start(now);
   }
 
   /**

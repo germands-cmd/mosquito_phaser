@@ -1,15 +1,22 @@
-import Phaser from 'phaser';
-import backgroundLegsImg from '../../assets/background_legs.jpg';
-import { AudioManager, DIRECTIONS } from '../audio/AudioManager.js';
-import { Environment } from '../entities/Environment.js';
-import { Swatter } from '../entities/Swatter.js';
-import { MosquitoManager, GAME_MODES, DIFFICULTY_KEYS, DIFFICULTY_LEVELS } from '../managers/MosquitoManager.js';
+import Phaser from "phaser";
+import backgroundLegsImg from "../../assets/background_legs.jpg";
+import { AudioManager, DIRECTIONS } from "../audio/AudioManager.js";
+import { Environment } from "../entities/Environment.js";
+import { Swatter } from "../entities/Swatter.js";
+import {
+  MosquitoManager,
+  GAME_MODES,
+  DIFFICULTY_KEYS,
+  DIFFICULTY_LEVELS,
+} from "../managers/MosquitoManager.js";
+import { AbilityManager } from "../abilities/AbilityManager.js";
+import { BloodHealthBar } from "../ui/BloodHealthBar.js";
 
 export const GAME_STATES = {
-  READY: 'READY',
-  PLAYING: 'PLAYING',
-  PAUSED: 'PAUSED',
-  GAME_OVER: 'GAME_OVER'
+  READY: "READY",
+  PLAYING: "PLAYING",
+  PAUSED: "PAUSED",
+  GAME_OVER: "GAME_OVER",
 };
 
 /**
@@ -21,20 +28,22 @@ export const GAME_STATES = {
  */
 export default class GameScene extends Phaser.Scene {
   constructor() {
-    super({ key: 'game' });
+    super({ key: "game" });
   }
 
   preload() {
-    this.load.image('background_legs', backgroundLegsImg);
+    this.load.image("background_legs", backgroundLegsImg);
   }
 
   create() {
     this.gameState = GAME_STATES.READY;
-    this.maxBites = 3;
+    this.maxHealth = 100;
+    this.health = 100;
+    this.damagePerBite = 4;
     this.bites = 0;
     this.swats = 0;
     this.debugMode = false;
-    this.debugInfo = { direction: 'None', duration: '0s' };
+    this.debugInfo = { direction: "None", duration: "0s" };
 
     // Version 1.1 / 1.2 Settings
     this.currentMode = GAME_MODES.AUDIO;
@@ -44,30 +53,36 @@ export default class GameScene extends Phaser.Scene {
     this.audio = new AudioManager();
 
     // 2. Build Environment (Background image, Legs Polygon Colliders with numbered IDs)
-    this.environment = new Environment(this, this.scale.width, this.scale.height);
+    this.environment = new Environment(
+      this,
+      this.scale.width,
+      this.scale.height,
+    );
 
     // 3. Blood Splatter Decals Graphics (on ground/legs)
     this.splatterGraphics = this.add.graphics().setDepth(4);
 
     // 4. Generate Particle Texture for Blood Splats
-    if (!this.textures.exists('blood_dot')) {
+    if (!this.textures.exists("blood_dot")) {
       const g = this.make.graphics({ x: 0, y: 0, add: false });
       g.fillStyle(0x850d18, 1);
       g.fillCircle(4, 4, 4);
-      g.generateTexture('blood_dot', 8, 8);
+      g.generateTexture("blood_dot", 8, 8);
       g.destroy();
     }
 
     // Blood particle emitter
-    this.bloodEmitter = this.add.particles(0, 0, 'blood_dot', {
-      speed: { min: 80, max: 240 },
-      angle: { min: 0, max: 360 },
-      scale: { start: 1.2, end: 0 },
-      alpha: { start: 1, end: 0.2 },
-      lifespan: { min: 250, max: 500 },
-      gravityY: 120,
-      emitting: false
-    }).setDepth(18);
+    this.bloodEmitter = this.add
+      .particles(0, 0, "blood_dot", {
+        speed: { min: 80, max: 240 },
+        angle: { min: 0, max: 360 },
+        scale: { start: 1.2, end: 0 },
+        alpha: { start: 1, end: 0.2 },
+        lifespan: { min: 250, max: 500 },
+        gravityY: 120,
+        emitting: false,
+      })
+      .setDepth(18);
 
     // 5. Visual Assistance Indicators Pool ("Little Red Help" for No-Audio Mode)
     this.createVisualHelpIndicator();
@@ -76,25 +91,31 @@ export default class GameScene extends Phaser.Scene {
     this.swatter = new Swatter(this, 36);
 
     // 7. Mosquito Swarm Manager (5 mosquitoes every 2.5s)
-    this.mosquitoManager = new MosquitoManager(this, this.audio, this.environment, {
-      onHit: (x, y) => this.handleMosquitoHit(x, y),
-      onBite: (x, y) => this.handleMosquitoBite(x, y),
-      onWarningStart: (dirData, durationSec) => {
-        this.debugInfo = {
-          direction: dirData.name,
-          duration: `${durationSec.toFixed(1)}s`
-        };
-        if (this.debugMode) {
-          this.updateDebugOverlay();
-        }
+    this.mosquitoManager = new MosquitoManager(
+      this,
+      this.audio,
+      this.environment,
+      {
+        onHit: (x, y) => this.handleMosquitoHit(x, y),
+        onBite: (x, y, mosquito) => this.handleMosquitoBite(x, y, mosquito),
+        onFeedingDamage: (mosquito, tickCount) => this.handleFeedingDamage(mosquito, tickCount),
+        onWarningStart: (dirData, durationSec) => {
+          this.debugInfo = {
+            direction: dirData.name,
+            duration: `${durationSec.toFixed(1)}s`,
+          };
+          if (this.debugMode) {
+            this.updateDebugOverlay();
+          }
+        },
+        onVisualWarning: (dirData, spawnPos, durationSec, mosquito) => {
+          this.showVisualHelp(dirData, spawnPos, durationSec);
+        },
+        onWarningEnd: () => {
+          this.hideVisualHelp();
+        },
       },
-      onVisualWarning: (dirData, spawnPos, durationSec, mosquito) => {
-        this.showVisualHelp(dirData, spawnPos, durationSec);
-      },
-      onWarningEnd: () => {
-        this.hideVisualHelp();
-      }
-    });
+    );
 
     // 8. HUD & Overlays
     this.createHUD();
@@ -103,23 +124,70 @@ export default class GameScene extends Phaser.Scene {
     this.createGameOverOverlay();
     this.createDebugOverlay();
 
+    // 8b. Active Ability System
+    this.abilityManager = new AbilityManager(
+      this,
+      this.audio,
+      this.mosquitoManager,
+      this.swatter,
+    );
+
     // 9. Pointer / Input Listeners
-    this.input.on('pointermove', (pointer) => {
+    this.input.on("pointermove", (pointer) => {
       if (this.gameState === GAME_STATES.PAUSED) return;
-      this.swatter.updatePosition(pointer.x, pointer.y);
+      this.swatter.updatePosition(pointer.worldX, pointer.worldY);
       if (this.debugMode) {
-        this.updateDebugOverlay(pointer.x, pointer.y);
+        this.updateDebugOverlay(pointer.worldX, pointer.worldY);
       }
     });
 
-    this.input.on('pointerdown', (pointer) => {
+    this.input.on("pointerdown", (pointer) => {
       if (pointer.button !== 0) return; // Left-click only
+
+      // Suppress swat strikes while typing the ability sequence
+      if (this.abilityManager && this.abilityManager.isInvulnerable()) {
+        return;
+      }
 
       if (this.gameState === GAME_STATES.PLAYING) {
         this.swatter.strike((impactX, impactY, hitRadius) => {
-          const hit = this.mosquitoManager.trySwat(impactX, impactY, hitRadius);
-          if (!hit) {
-            this.audio.playSwatMiss();
+          // Identify any direct hits on vulnerable mosquitoes (diving or feeding)
+          const hitMosquitoes = [];
+          for (const m of this.mosquitoManager.mosquitoPool) {
+            if (m.isSwattable()) {
+              const dist = Phaser.Math.Distance.Between(
+                impactX,
+                impactY,
+                m.x,
+                m.y,
+              );
+              if (dist <= hitRadius + m.radius) {
+                hitMosquitoes.push(m);
+              }
+            }
+          }
+
+          // Active Ability Payoff hook: trigger prepared effect if applicable
+          const abilityTriggered = this.abilityManager.handleSwatImpact(
+            impactX,
+            impactY,
+            hitRadius,
+            hitMosquitoes,
+          );
+
+          if (!abilityTriggered) {
+            const hit = this.mosquitoManager.trySwat(
+              impactX,
+              impactY,
+              hitRadius,
+            );
+            if (!hit) {
+              this.audio.playSwatMiss();
+              // Miss resets the stress streak
+              if (this.abilityManager) {
+                this.abilityManager.stressSystem.onMiss();
+              }
+            }
           }
         });
       }
@@ -153,11 +221,13 @@ export default class GameScene extends Phaser.Scene {
       icon.strokeCircle(0, 0, 16);
       container.add(icon);
 
-      const text = this.add.text(0, 0, '!', {
-        fontFamily: '"Impact", "Arial Black", sans-serif',
-        fontSize: '20px',
-        color: '#ffffff'
-      }).setOrigin(0.5);
+      const text = this.add
+        .text(0, 0, "!", {
+          fontFamily: '"Impact", "Arial Black", sans-serif',
+          fontSize: "20px",
+          color: "#ffffff",
+        })
+        .setOrigin(0.5);
       container.add(text);
 
       this.tweens.add({
@@ -166,7 +236,7 @@ export default class GameScene extends Phaser.Scene {
         scaleY: 1.25,
         yoyo: true,
         repeat: -1,
-        duration: 220
+        duration: 220,
       });
 
       this.visualHelpPool.push(container);
@@ -180,29 +250,30 @@ export default class GameScene extends Phaser.Scene {
     let y = 50;
 
     switch (dirData.name) {
-      case 'LEFT':
+      case "LEFT":
         x = 35;
         y = Phaser.Math.Clamp(spawnPos.y, 80, height - 80);
         break;
-      case 'TOP_LEFT':
+      case "TOP_LEFT":
         x = 45;
         y = 45;
         break;
-      case 'TOP':
+      case "TOP":
         x = Phaser.Math.Clamp(spawnPos.x, 150, width - 150);
         y = 35;
         break;
-      case 'TOP_RIGHT':
+      case "TOP_RIGHT":
         x = width - 45;
         y = 45;
         break;
-      case 'RIGHT':
+      case "RIGHT":
         x = width - 35;
         y = Phaser.Math.Clamp(spawnPos.y, 80, height - 80);
         break;
     }
 
-    const container = this.visualHelpPool.find(c => !c.visible) || this.visualHelpPool[0];
+    const container =
+      this.visualHelpPool.find((c) => !c.visible) || this.visualHelpPool[0];
     container.setPosition(x, y);
     container.setVisible(true);
 
@@ -220,50 +291,27 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Version 1.2: Compact bottom-center HUD showing SWATS and BITES.
+   * Version 1.3: Bottom-center bubbling Blood Health Bar.
    */
   createHUD() {
-    this.hudContainer = this.add.container(0, 0).setDepth(30);
     const width = this.scale.width;
     const height = this.scale.height;
     const cx = width / 2;
 
     const hudW = 320;
-    const hudH = 40;
+    const hudH = 38;
     const hudX = cx - hudW / 2;
     const hudY = height - 52;
 
-    // Bottom center status banner background
-    const bg = this.add.graphics();
-    bg.fillStyle(0x18100c, 0.88);
-    bg.fillRoundedRect(hudX, hudY, hudW, hudH, 8);
-    bg.lineStyle(2, 0x3d2817, 0.9);
-    bg.strokeRoundedRect(hudX, hudY, hudW, hudH, 8);
-
-    // Subtle center divider
-    bg.lineStyle(1.5, 0x4a3220, 0.7);
-    bg.lineBetween(cx, hudY + 8, cx, hudY + hudH - 8);
-    this.hudContainer.add(bg);
-
-    // Swats score text on left
-    this.swatText = this.add.text(hudX + 24, hudY + hudH / 2, 'SWATS: 0', {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '18px',
-      color: '#e5e0d8',
-      stroke: '#111111',
-      strokeThickness: 3
-    }).setOrigin(0, 0.5);
-    this.hudContainer.add(this.swatText);
-
-    // Bite counter text on right
-    this.biteText = this.add.text(hudX + hudW - 24, hudY + hudH / 2, `BITES: 0 / ${this.maxBites}`, {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '18px',
-      color: '#e64444',
-      stroke: '#111111',
-      strokeThickness: 3
-    }).setOrigin(1, 0.5);
-    this.hudContainer.add(this.biteText);
+    // Bottom Blood Health Bar (with bubbling liquid animation and trailing damage ghost)
+    this.bloodHealthBar = new BloodHealthBar(
+      this,
+      hudX,
+      hudY,
+      hudW,
+      hudH,
+      this.maxHealth,
+    );
   }
 
   /**
@@ -282,63 +330,96 @@ export default class GameScene extends Phaser.Scene {
     this.readyContainer.add(dim);
 
     // Title
-    const title = this.add.text(cx, 160, 'MOSQUITO', {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '76px',
-      color: '#d94b36',
-      stroke: '#1a0806',
-      strokeThickness: 8
-    }).setOrigin(0.5);
+    const title = this.add
+      .text(cx, 160, "MOSQUITO", {
+        fontFamily: '"Impact", "Arial Black", sans-serif',
+        fontSize: "76px",
+        color: "#d94b36",
+        stroke: "#1a0806",
+        strokeThickness: 8,
+      })
+      .setOrigin(0.5);
     this.readyContainer.add(title);
 
     // Version in bottom-left corner
-    const versionTag = this.add.text(24, height - 20, 'v1.2', {
-      fontFamily: 'sans-serif',
-      fontSize: '14px',
-      fontWeight: 'bold',
-      color: '#8c7762',
-      letterSpacing: 2
-    }).setOrigin(0, 1);
+    const versionTag = this.add
+      .text(24, height - 20, "v1.2", {
+        fontFamily: "sans-serif",
+        fontSize: "14px",
+        fontWeight: "bold",
+        color: "#8c7762",
+        letterSpacing: 2,
+      })
+      .setOrigin(0, 1);
     this.readyContainer.add(versionTag);
 
     // 1. Mode Selection Container (Audio vs No-Audio)
-    const modeLabel = this.add.text(cx, 270, 'SELECT MODE:', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '13px',
-      color: '#dec5ab'
-    }).setOrigin(0.5);
+    const modeLabel = this.add
+      .text(cx, 270, "SELECT MODE:", {
+        fontFamily: '"Arial Black", sans-serif',
+        fontSize: "13px",
+        color: "#dec5ab",
+      })
+      .setOrigin(0.5);
     this.readyContainer.add(modeLabel);
 
     // Mode Buttons
-    this.btnModeAudio = this.createSegmentButton(cx - 145, 302, 135, 38, 'Audio Mode', true, () => {
-      this.setGameMode(GAME_MODES.AUDIO);
-    });
-    this.btnModeVisual = this.createSegmentButton(cx + 10, 302, 155, 38, 'No Audio (Help)', false, () => {
-      this.setGameMode(GAME_MODES.NO_AUDIO);
-    });
-    this.readyContainer.add([this.btnModeAudio.container, this.btnModeVisual.container]);
+    this.btnModeAudio = this.createSegmentButton(
+      cx - 145,
+      302,
+      135,
+      38,
+      "Audio Mode",
+      true,
+      () => {
+        this.setGameMode(GAME_MODES.AUDIO);
+      },
+    );
+    this.btnModeVisual = this.createSegmentButton(
+      cx + 10,
+      302,
+      155,
+      38,
+      "No Audio (Help)",
+      false,
+      () => {
+        this.setGameMode(GAME_MODES.NO_AUDIO);
+      },
+    );
+    this.readyContainer.add([
+      this.btnModeAudio.container,
+      this.btnModeVisual.container,
+    ]);
 
     // 2. Difficulty Selection Container (Easy, Normal, Hard)
-    const diffLabel = this.add.text(cx, 380, 'DIFFICULTY:', {
-      fontFamily: '"Arial Black", sans-serif',
-      fontSize: '13px',
-      color: '#dec5ab'
-    }).setOrigin(0.5);
+    const diffLabel = this.add
+      .text(cx, 380, "DIFFICULTY:", {
+        fontFamily: '"Arial Black", sans-serif',
+        fontSize: "13px",
+        color: "#dec5ab",
+      })
+      .setOrigin(0.5);
     this.readyContainer.add(diffLabel);
 
     // Difficulty Selector Row: [◀]  [ DIFFICULTY: NORMAL ]  [▶]
     this.diffDisplayBg = this.add.graphics();
     this.readyContainer.add(this.diffDisplayBg);
 
-    this.diffText = this.add.text(cx, 422, 'DIFFICULTY: NORMAL', {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '22px',
-      color: '#f5efe6'
-    }).setOrigin(0.5);
+    this.diffText = this.add
+      .text(cx, 422, "DIFFICULTY: NORMAL", {
+        fontFamily: '"Impact", "Arial Black", sans-serif',
+        fontSize: "22px",
+        color: "#f5efe6",
+      })
+      .setOrigin(0.5);
     this.readyContainer.add(this.diffText);
 
-    this.btnDiffPrev = this.createArrowButton(cx - 170, 422, '◀', () => this.cycleDifficulty(-1));
-    this.btnDiffNext = this.createArrowButton(cx + 170, 422, '▶', () => this.cycleDifficulty(1));
+    this.btnDiffPrev = this.createArrowButton(cx - 170, 422, "◀", () =>
+      this.cycleDifficulty(-1),
+    );
+    this.btnDiffNext = this.createArrowButton(cx + 170, 422, "▶", () =>
+      this.cycleDifficulty(1),
+    );
     this.readyContainer.add([this.btnDiffPrev, this.btnDiffNext]);
 
     this.updateDifficultyDisplay();
@@ -353,17 +434,21 @@ export default class GameScene extends Phaser.Scene {
     btnBg.strokeRoundedRect(cx - 120, 510, 240, 56, 10);
     this.readyContainer.add(btnBg);
 
-    const btnText = this.add.text(cx, 538, 'START GAME', {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '26px',
-      color: '#ffffff'
-    }).setOrigin(0.5);
+    const btnText = this.add
+      .text(cx, 538, "START GAME", {
+        fontFamily: '"Impact", "Arial Black", sans-serif',
+        fontSize: "26px",
+        color: "#ffffff",
+      })
+      .setOrigin(0.5);
     this.readyContainer.add(btnText);
 
-    const hitZone = this.add.zone(cx, 538, 240, 56).setInteractive({ cursor: 'pointer' });
+    const hitZone = this.add
+      .zone(cx, 538, 240, 56)
+      .setInteractive({ cursor: "pointer" });
     this.readyContainer.add(hitZone);
 
-    hitZone.on('pointerdown', () => {
+    hitZone.on("pointerdown", () => {
       this.startGame();
     });
 
@@ -372,7 +457,7 @@ export default class GameScene extends Phaser.Scene {
       scale: 1.05,
       yoyo: true,
       repeat: -1,
-      duration: 650
+      duration: 650,
     });
   }
 
@@ -380,7 +465,10 @@ export default class GameScene extends Phaser.Scene {
    * Version 1.2: Pause Menu Overlay
    */
   createPauseOverlay() {
-    this.pauseContainer = this.add.container(0, 0).setDepth(45).setVisible(false);
+    this.pauseContainer = this.add
+      .container(0, 0)
+      .setDepth(45)
+      .setVisible(false);
     const width = this.scale.width;
     const height = this.scale.height;
     const cx = width / 2;
@@ -392,32 +480,43 @@ export default class GameScene extends Phaser.Scene {
     this.pauseContainer.add(dim);
 
     // Title
-    const title = this.add.text(cx, 210, 'PAUSED', {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '60px',
-      color: '#f0dfce',
-      stroke: '#1a0806',
-      strokeThickness: 6
-    }).setOrigin(0.5);
+    const title = this.add
+      .text(cx, 210, "PAUSED", {
+        fontFamily: '"Impact", "Arial Black", sans-serif',
+        fontSize: "60px",
+        color: "#f0dfce",
+        stroke: "#1a0806",
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5);
     this.pauseContainer.add(title);
 
     // Resume instruction label
-    const resumeLabel = this.add.text(cx, 275, 'Press ESC to resume', {
-      fontFamily: 'sans-serif',
-      fontSize: '16px',
-      color: '#c4b3a4',
-      letterSpacing: 1
-    }).setOrigin(0.5);
+    const resumeLabel = this.add
+      .text(cx, 275, "Press ESC to resume", {
+        fontFamily: "sans-serif",
+        fontSize: "16px",
+        color: "#c4b3a4",
+        letterSpacing: 1,
+      })
+      .setOrigin(0.5);
     this.pauseContainer.add(resumeLabel);
 
     // Restart button
-    const restartBtn = this.createMenuButton(cx, 350, 220, 50, 'RESTART', () => {
-      this.restartFromPause();
-    });
+    const restartBtn = this.createMenuButton(
+      cx,
+      350,
+      220,
+      50,
+      "RESTART",
+      () => {
+        this.restartFromPause();
+      },
+    );
     this.pauseContainer.add(restartBtn);
 
     // Main menu button
-    const menuBtn = this.createMenuButton(cx, 420, 220, 50, 'MAIN MENU', () => {
+    const menuBtn = this.createMenuButton(cx, 420, 220, 50, "MAIN MENU", () => {
       this.goToMainMenu();
     });
     this.pauseContainer.add(menuBtn);
@@ -433,23 +532,27 @@ export default class GameScene extends Phaser.Scene {
     bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 8);
     container.add(bg);
 
-    const txt = this.add.text(0, 0, text, {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '22px',
-      color: '#ffffff'
-    }).setOrigin(0.5);
+    const txt = this.add
+      .text(0, 0, text, {
+        fontFamily: '"Impact", "Arial Black", sans-serif',
+        fontSize: "22px",
+        color: "#ffffff",
+      })
+      .setOrigin(0.5);
     container.add(txt);
 
-    const zone = this.add.zone(0, 0, w, h).setInteractive({ cursor: 'pointer' });
-    zone.on('pointerdown', onClick);
-    zone.on('pointerover', () => {
+    const zone = this.add
+      .zone(0, 0, w, h)
+      .setInteractive({ cursor: "pointer" });
+    zone.on("pointerdown", onClick);
+    zone.on("pointerover", () => {
       bg.clear();
       bg.fillStyle(0xb22d20, 1);
       bg.fillRoundedRect(-w / 2, -h / 2, w, h, 8);
       bg.lineStyle(2, 0xffffff, 1);
       bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 8);
     });
-    zone.on('pointerout', () => {
+    zone.on("pointerout", () => {
       bg.clear();
       bg.fillStyle(0x942216, 1);
       bg.fillRoundedRect(-w / 2, -h / 2, w, h, 8);
@@ -484,6 +587,7 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.resumeAll();
     this.audio.resume();
     this.pauseContainer.setVisible(false);
+    this.abilityManager?.reset();
     this.restartGame();
   }
 
@@ -498,6 +602,9 @@ export default class GameScene extends Phaser.Scene {
     this.splatterGraphics.clear();
     this.environment.reset();
     this.hideVisualHelp();
+    this.abilityManager?.reset();
+    this.health = this.maxHealth;
+    this.bloodHealthBar?.reset();
     this.gameState = GAME_STATES.READY;
     this.readyContainer.setVisible(true);
     this.updateHUD();
@@ -508,18 +615,22 @@ export default class GameScene extends Phaser.Scene {
     const bg = this.add.graphics();
     container.add(bg);
 
-    const text = this.add.text(w / 2, h / 2, label, {
-      fontFamily: 'sans-serif',
-      fontSize: '13px',
-      fontWeight: 'bold',
-      color: active ? '#ffffff' : '#a89480'
-    }).setOrigin(0.5);
+    const text = this.add
+      .text(w / 2, h / 2, label, {
+        fontFamily: "sans-serif",
+        fontSize: "13px",
+        fontWeight: "bold",
+        color: active ? "#ffffff" : "#a89480",
+      })
+      .setOrigin(0.5);
     container.add(text);
 
-    const zone = this.add.zone(w / 2, h / 2, w, h).setInteractive({ cursor: 'pointer' });
+    const zone = this.add
+      .zone(w / 2, h / 2, w, h)
+      .setInteractive({ cursor: "pointer" });
     container.add(zone);
 
-    zone.on('pointerdown', onClick);
+    zone.on("pointerdown", onClick);
 
     const render = (isActive) => {
       bg.clear();
@@ -528,13 +639,13 @@ export default class GameScene extends Phaser.Scene {
         bg.fillRoundedRect(0, 0, w, h, 6);
         bg.lineStyle(2, 0xffbb99, 1);
         bg.strokeRoundedRect(0, 0, w, h, 6);
-        text.setColor('#ffffff');
+        text.setColor("#ffffff");
       } else {
         bg.fillStyle(0x271912, 0.9);
         bg.fillRoundedRect(0, 0, w, h, 6);
         bg.lineStyle(1.5, 0x4a2e1d, 1);
         bg.strokeRoundedRect(0, 0, w, h, 6);
-        text.setColor('#a89480');
+        text.setColor("#a89480");
       }
     };
 
@@ -551,15 +662,19 @@ export default class GameScene extends Phaser.Scene {
     bg.strokeCircle(0, 0, 20);
     container.add(bg);
 
-    const txt = this.add.text(0, 0, symbol, {
-      fontFamily: 'sans-serif',
-      fontSize: '16px',
-      color: '#f0dfce'
-    }).setOrigin(0.5);
+    const txt = this.add
+      .text(0, 0, symbol, {
+        fontFamily: "sans-serif",
+        fontSize: "16px",
+        color: "#f0dfce",
+      })
+      .setOrigin(0.5);
     container.add(txt);
 
-    const zone = this.add.zone(0, 0, 40, 40).setInteractive({ cursor: 'pointer' });
-    zone.on('pointerdown', onClick);
+    const zone = this.add
+      .zone(0, 0, 40, 40)
+      .setInteractive({ cursor: "pointer" });
+    zone.on("pointerdown", onClick);
     container.add(zone);
 
     return container;
@@ -572,7 +687,9 @@ export default class GameScene extends Phaser.Scene {
   }
 
   cycleDifficulty(delta) {
-    this.difficultyIndex = (this.difficultyIndex + delta + DIFFICULTY_KEYS.length) % DIFFICULTY_KEYS.length;
+    this.difficultyIndex =
+      (this.difficultyIndex + delta + DIFFICULTY_KEYS.length) %
+      DIFFICULTY_KEYS.length;
     this.updateDifficultyDisplay();
   }
 
@@ -591,7 +708,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   createGameOverOverlay() {
-    this.gameOverContainer = this.add.container(0, 0).setDepth(45).setVisible(false);
+    this.gameOverContainer = this.add
+      .container(0, 0)
+      .setDepth(45)
+      .setVisible(false);
     const width = this.scale.width;
     const height = this.scale.height;
     const cx = width / 2;
@@ -601,20 +721,24 @@ export default class GameScene extends Phaser.Scene {
     dim.fillRect(0, 0, width, height);
     this.gameOverContainer.add(dim);
 
-    const title = this.add.text(cx, 210, 'EATEN ALIVE!', {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '68px',
-      color: '#e62e2e',
-      stroke: '#2e0505',
-      strokeThickness: 8
-    }).setOrigin(0.5);
+    const title = this.add
+      .text(cx, 210, "EATEN ALIVE!", {
+        fontFamily: '"Impact", "Arial Black", sans-serif',
+        fontSize: "68px",
+        color: "#e62e2e",
+        stroke: "#2e0505",
+        strokeThickness: 8,
+      })
+      .setOrigin(0.5);
     this.gameOverContainer.add(title);
 
-    this.gameOverStats = this.add.text(cx, 310, 'You swatted 0 mosquitoes.', {
-      fontFamily: 'sans-serif',
-      fontSize: '22px',
-      color: '#e5d0be'
-    }).setOrigin(0.5);
+    this.gameOverStats = this.add
+      .text(cx, 310, "You swatted 0 mosquitoes.", {
+        fontFamily: "sans-serif",
+        fontSize: "22px",
+        color: "#e5d0be",
+      })
+      .setOrigin(0.5);
     this.gameOverContainer.add(this.gameOverStats);
 
     // Retry Button
@@ -625,34 +749,41 @@ export default class GameScene extends Phaser.Scene {
     retryBg.strokeRoundedRect(cx - 120, 410, 240, 56, 10);
     this.gameOverContainer.add(retryBg);
 
-    const retryText = this.add.text(cx, 438, 'TRY AGAIN', {
-      fontFamily: '"Impact", "Arial Black", sans-serif',
-      fontSize: '26px',
-      color: '#ffffff'
-    }).setOrigin(0.5);
+    const retryText = this.add
+      .text(cx, 438, "TRY AGAIN", {
+        fontFamily: '"Impact", "Arial Black", sans-serif',
+        fontSize: "26px",
+        color: "#ffffff",
+      })
+      .setOrigin(0.5);
     this.gameOverContainer.add(retryText);
 
-    const retryZone = this.add.zone(cx, 438, 240, 56).setInteractive({ cursor: 'pointer' });
+    const retryZone = this.add
+      .zone(cx, 438, 240, 56)
+      .setInteractive({ cursor: "pointer" });
     this.gameOverContainer.add(retryZone);
 
-    retryZone.on('pointerdown', () => {
+    retryZone.on("pointerdown", () => {
       this.restartGame();
     });
   }
 
   createDebugOverlay() {
-    this.debugContainer = this.add.container(16, 68).setDepth(35).setVisible(false);
+    this.debugContainer = this.add
+      .container(16, 68)
+      .setDepth(35)
+      .setVisible(false);
 
     const bg = this.add.graphics();
     bg.fillStyle(0x000000, 0.8);
     bg.fillRoundedRect(0, 0, 340, 180, 6);
     this.debugContainer.add(bg);
 
-    this.debugText = this.add.text(12, 10, '', {
-      fontFamily: 'monospace',
-      fontSize: '12px',
-      color: '#33ff33',
-      lineSpacing: 4
+    this.debugText = this.add.text(12, 10, "", {
+      fontFamily: "monospace",
+      fontSize: "12px",
+      color: "#33ff33",
+      lineSpacing: 4,
     });
     this.debugContainer.add(this.debugText);
     this.updateDebugOverlay();
@@ -663,23 +794,25 @@ export default class GameScene extends Phaser.Scene {
     const diffKey = DIFFICULTY_KEYS[this.difficultyIndex];
     const mx = Math.round(mouseX || 0);
     const my = Math.round(mouseY || 0);
-    const activeCount = this.mosquitoManager ? this.mosquitoManager.getActiveCount() : 0;
+    const activeCount = this.mosquitoManager
+      ? this.mosquitoManager.getActiveCount()
+      : 0;
     this.debugText.setText(
       `[DEBUG MODE (D to toggle)]\n` +
-      `Mouse (X, Y)     : ${mx}, ${my}\n` +
-      `Active Mosquitos : ${activeCount}\n` +
-      `Wave Interval    : 2.5s (5 per wave)\n` +
-      `Left Leg Points  : 0 - 14 (Cyan)\n` +
-      `Right Leg Points : 0 - 14 (Magenta)\n` +
-      `Mode             : ${this.currentMode}\n` +
-      `Difficulty       : ${DIFFICULTY_LEVELS[diffKey]?.label}\n` +
-      `Force Keys       : 1:L 2:TL 3:T 4:TR 5:R`
+        `Mouse (X, Y)     : ${mx}, ${my}\n` +
+        `Active Mosquitos : ${activeCount}\n` +
+        `Wave Interval    : 2.5s (5 per wave)\n` +
+        `Left Leg Points  : 0 - 14 (Cyan)\n` +
+        `Right Leg Points : 0 - 14 (Magenta)\n` +
+        `Mode             : ${this.currentMode}\n` +
+        `Difficulty       : ${DIFFICULTY_LEVELS[diffKey]?.label}\n` +
+        `Force Keys       : 6:L 7:TL 8:T 9:TR 0:R\nAbilities        : [1] Bomb, [2] Transfusion (Inputs: Q, W, E, R)`,
     );
   }
 
   setupDebugKeys() {
     // ESC to toggle pause / resume
-    this.input.keyboard.on('keydown-ESC', () => {
+    this.input.keyboard.on("keydown-ESC", () => {
       if (this.gameState === GAME_STATES.PLAYING) {
         this.pauseGame();
       } else if (this.gameState === GAME_STATES.PAUSED) {
@@ -688,7 +821,7 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // D to toggle debug overlay and collider outlines
-    this.input.keyboard.on('keydown-D', () => {
+    this.input.keyboard.on("keydown-D", () => {
       this.debugMode = !this.debugMode;
       this.debugContainer.setVisible(this.debugMode);
       this.environment.setDebugVisible(this.debugMode);
@@ -700,27 +833,73 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // Space key to start game directly from ready menu
-    this.input.keyboard.on('keydown-SPACE', () => {
+    this.input.keyboard.on("keydown-SPACE", () => {
       if (this.gameState === GAME_STATES.READY) {
         this.startGame();
       }
     });
 
-    // 1-5 keys to force specific attack directions for testing
-    this.input.keyboard.on('keydown-ONE', () => {
-      if (this.gameState === GAME_STATES.PLAYING) this.mosquitoManager.triggerAttack('LEFT');
+    // Keyboard capture to avoid browser scrolling on arrow keys
+    if (this.input.keyboard) {
+      this.input.keyboard.addCapture([
+        "Q",
+        "W",
+        "E",
+        "R",
+        "UP",
+        "DOWN",
+        "LEFT",
+        "RIGHT",
+        "ONE",
+        "TWO",
+      ]);
+    }
+
+    // Active Ability Activation Keys (1 and 2, including Numpad)
+    ["ONE", "NUMPAD_ONE"].forEach((key) => {
+      this.input.keyboard.on(`keydown-${key}`, () => {
+        if (this.gameState === GAME_STATES.PLAYING) {
+          this.abilityManager.activateSlot(0); // Pressure Bomb
+        }
+      });
     });
-    this.input.keyboard.on('keydown-TWO', () => {
-      if (this.gameState === GAME_STATES.PLAYING) this.mosquitoManager.triggerAttack('TOP_LEFT');
+    ["TWO", "NUMPAD_TWO"].forEach((key) => {
+      this.input.keyboard.on(`keydown-${key}`, () => {
+        if (this.gameState === GAME_STATES.PLAYING) {
+          this.abilityManager.activateSlot(1); // Reverse Transfusion
+        }
+      });
     });
-    this.input.keyboard.on('keydown-THREE', () => {
-      if (this.gameState === GAME_STATES.PLAYING) this.mosquitoManager.triggerAttack('TOP');
+
+    // Ergonomic Q, W, E, R Keys for Ability Sequence Input
+    ["Q", "W", "E", "R"].forEach((key) => {
+      this.input.keyboard.on(`keydown-${key}`, () => {
+        if (this.gameState === GAME_STATES.PLAYING) {
+          this.abilityManager.handleDirectionInput(key);
+        }
+      });
     });
-    this.input.keyboard.on('keydown-FOUR', () => {
-      if (this.gameState === GAME_STATES.PLAYING) this.mosquitoManager.triggerAttack('TOP_RIGHT');
+
+    // 6-0 keys to force specific attack directions for testing (moved from 1-5)
+    this.input.keyboard.on("keydown-SIX", () => {
+      if (this.gameState === GAME_STATES.PLAYING)
+        this.mosquitoManager.triggerAttack("LEFT");
     });
-    this.input.keyboard.on('keydown-FIVE', () => {
-      if (this.gameState === GAME_STATES.PLAYING) this.mosquitoManager.triggerAttack('RIGHT');
+    this.input.keyboard.on("keydown-SEVEN", () => {
+      if (this.gameState === GAME_STATES.PLAYING)
+        this.mosquitoManager.triggerAttack("TOP_LEFT");
+    });
+    this.input.keyboard.on("keydown-EIGHT", () => {
+      if (this.gameState === GAME_STATES.PLAYING)
+        this.mosquitoManager.triggerAttack("TOP");
+    });
+    this.input.keyboard.on("keydown-NINE", () => {
+      if (this.gameState === GAME_STATES.PLAYING)
+        this.mosquitoManager.triggerAttack("TOP_RIGHT");
+    });
+    this.input.keyboard.on("keydown-ZERO", () => {
+      if (this.gameState === GAME_STATES.PLAYING)
+        this.mosquitoManager.triggerAttack("RIGHT");
     });
   }
 
@@ -732,6 +911,8 @@ export default class GameScene extends Phaser.Scene {
     this.hideVisualHelp();
     this.bites = 0;
     this.swats = 0;
+    this.health = this.maxHealth;
+    this.bloodHealthBar?.reset();
 
     // Apply configured settings to mosquito manager
     const currentDiffKey = DIFFICULTY_KEYS[this.difficultyIndex];
@@ -748,6 +929,9 @@ export default class GameScene extends Phaser.Scene {
     this.splatterGraphics.clear();
     this.environment.reset();
     this.hideVisualHelp();
+    this.abilityManager?.reset();
+    this.health = this.maxHealth;
+    this.bloodHealthBar?.reset();
     this.startGame();
   }
 
@@ -763,6 +947,13 @@ export default class GameScene extends Phaser.Scene {
 
     // 3. Screen shake
     this.cameras.main.shake(120, 0.008);
+
+    // 4. Feed stress system (only when not triggered by an ability effect)
+    if (this.abilityManager && !this.abilityManager.isFrenzyActive()) {
+      const wasAlreadyFull = this.abilityManager.stressSystem.isFull();
+      this.abilityManager.stressSystem.onHit();
+      this._onStressChanged(wasAlreadyFull);
+    }
   }
 
   drawBloodSplat(x, y) {
@@ -773,38 +964,117 @@ export default class GameScene extends Phaser.Scene {
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
       const dist = Phaser.Math.Between(10, 24);
       const rad = Phaser.Math.Between(2, 4);
-      this.splatterGraphics.fillCircle(x + Math.cos(angle) * dist, y + Math.sin(angle) * dist, rad);
+      this.splatterGraphics.fillCircle(
+        x + Math.cos(angle) * dist,
+        y + Math.sin(angle) * dist,
+        rad,
+      );
     }
   }
 
-  handleMosquitoBite(x, y) {
+  handleMosquitoBite(x, y, mosquito) {
+    if (this.abilityManager && this.abilityManager.isInvulnerable()) {
+      return; // Player invulnerable while entering sequence!
+    }
+
     this.bites++;
-    this.updateHUD();
 
-    // Flash screen red
-    this.cameras.main.flash(200, 180, 20, 20, false);
+    // Note: visual flash is deferred to first feeding damage tick (handleFeedingDamage)
+    // so feedback only triggers after real damage is confirmed.
 
-    if (this.bites >= this.maxBites) {
+    // Stress hook on initial bite (+0 per user test request)
+    const stressGainOnBite = 0;
+    if (stressGainOnBite > 0 && this.abilityManager) {
+      const wasAlreadyFull = this.abilityManager.stressSystem.isFull();
+      this.abilityManager.stressSystem.stress = Math.min(
+        this.abilityManager.stressSystem.maxStress,
+        this.abilityManager.stressSystem.stress + stressGainOnBite
+      );
+      this._onStressChanged(wasAlreadyFull);
+    }
+  }
+
+  /**
+   * Called every full second that a mosquito is attached and feeding on the player.
+   * Deals 1 discrete damage per full second.
+   * @param {import('../entities/Mosquito.js').Mosquito} mosquito
+   * @param {number} tickCount - Number of damage ticks fired by this mosquito (1-based)
+   */
+  handleFeedingDamage(mosquito, tickCount) {
+    if (this.gameState !== GAME_STATES.PLAYING) return;
+    if (this.abilityManager && this.abilityManager.isInvulnerable()) return;
+
+    // Deduct 1 HP per full second
+    this.health = Math.max(0, this.health - 1);
+    this.bloodHealthBar.setHealth(this.health, this.maxHealth);
+
+    // Soft damage flash feedback — very subtle pale red wash
+    this.cameras.main.flash(200, 55, 8, 8, false);
+
+    // Stress hook on feeding tick (+0 per user test request)
+    const stressGainOnTick = 0;
+    if (stressGainOnTick > 0 && this.abilityManager) {
+      const wasAlreadyFull = this.abilityManager.stressSystem.isFull();
+      this.abilityManager.stressSystem.stress = Math.min(
+        this.abilityManager.stressSystem.maxStress,
+        this.abilityManager.stressSystem.stress + stressGainOnTick
+      );
+      this._onStressChanged(wasAlreadyFull);
+    }
+
+    if (this.health <= 0) {
       this.triggerGameOver();
+    }
+  }
+
+  /**
+   * Called after every stress change (hit or bite).
+   * Updates the stress bar UI and plays the full-charge sound/feedback
+   * exactly once when the bar crosses 100%.
+   * @param {boolean} wasAlreadyFull - Whether the bar was already full before this event
+   */
+  _onStressChanged(wasAlreadyFull) {
+    const ss = this.abilityManager.stressSystem;
+    this.abilityManager.ui.updateStressBar(ss.getRatio(), false);
+    if (!wasAlreadyFull && ss.isFull()) {
+      this.audio.playStressFull?.();
+      this.abilityManager.ui.showStressFullFeedback();
     }
   }
 
   triggerGameOver() {
     this.gameState = GAME_STATES.GAME_OVER;
     this.hideVisualHelp();
+    this.abilityManager?.reset();
     this.mosquitoManager.stop();
     this.audio.stopAllMosquitoBuzzes();
 
-    this.gameOverStats.setText(`You managed to swat ${this.swats} mosquito${this.swats === 1 ? '' : 'es'}.`);
+    this.gameOverStats.setText(
+      `You managed to swat ${this.swats} mosquito${this.swats === 1 ? "" : "es"}`,
+    );
     this.gameOverContainer.setVisible(true);
   }
 
   updateHUD() {
-    this.swatText.setText(`SWATS: ${this.swats}`);
-    this.biteText.setText(`BITES: ${this.bites} / ${this.maxBites}`);
+    // HUD is driven directly by bloodHealthBar and abilityUI
+  }
+
+  update(time, delta) {
+    if (this.bloodHealthBar) {
+      this.bloodHealthBar.update(delta);
+    }
+    if (this.abilityManager) {
+      this.abilityManager.update(time, delta);
+    }
   }
 
   shutdown() {
+    if (this.bloodHealthBar) {
+      this.bloodHealthBar.destroy();
+    }
+    if (this.abilityManager) {
+      this.abilityManager.destroy();
+    }
     this.hideVisualHelp();
     this.mosquitoManager.destroy();
     this.swatter.destroy();
