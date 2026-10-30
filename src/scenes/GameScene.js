@@ -62,7 +62,7 @@ export default class GameScene extends Phaser.Scene {
     );
 
     // 3. Blood Splatter Decals Graphics (on ground/legs)
-    this.splatterGraphics = this.add.graphics().setDepth(4);
+    this.bloodSplatters = [];
 
     // 4. Generate Particle Texture for Blood Splats
     if (!this.textures.exists("blood_dot")) {
@@ -608,7 +608,7 @@ export default class GameScene extends Phaser.Scene {
     this.gameOverContainer.setVisible(false);
     this.mosquitoManager.stop();
     this.audio.stopAllMosquitoBuzzes();
-    this.splatterGraphics.clear();
+    this.clearBloodSplats();
     this.environment.reset();
     this.hideVisualHelp();
     this.abilityManager?.reset();
@@ -978,7 +978,7 @@ export default class GameScene extends Phaser.Scene {
   restartGame() {
     this.gameOverContainer.setVisible(false);
     this.pauseContainer.setVisible(false);
-    this.splatterGraphics.clear();
+    this.clearBloodSplats();
     this.environment.reset();
     this.hideVisualHelp();
     this.abilityManager?.reset();
@@ -1009,18 +1009,48 @@ export default class GameScene extends Phaser.Scene {
   }
 
   drawBloodSplat(x, y) {
-    this.splatterGraphics.fillStyle(0x780d16, 0.85);
-    this.splatterGraphics.fillCircle(x, y, Phaser.Math.Between(6, 11));
+    const splat = this.add.graphics().setDepth(4);
+    splat.fillStyle(0x780d16, 0.85);
+    splat.fillCircle(x, y, Phaser.Math.Between(6, 11));
     const droplets = Phaser.Math.Between(4, 8);
     for (let i = 0; i < droplets; i++) {
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
       const dist = Phaser.Math.Between(10, 24);
       const rad = Phaser.Math.Between(2, 4);
-      this.splatterGraphics.fillCircle(
+      splat.fillCircle(
         x + Math.cos(angle) * dist,
         y + Math.sin(angle) * dist,
         rad,
       );
+    }
+    this.bloodSplatters.push(splat);
+
+    const lifespanMs = Phaser.Math.Between(3000, 5000);
+    splat.fadeTween = this.tweens.add({
+      targets: splat,
+      alpha: 0,
+      delay: lifespanMs,
+      duration: 600,
+      ease: 'Linear',
+      onComplete: () => {
+        const idx = this.bloodSplatters.indexOf(splat);
+        if (idx !== -1) {
+          this.bloodSplatters.splice(idx, 1);
+        }
+        splat.destroy();
+      },
+    });
+  }
+
+  clearBloodSplats() {
+    if (this.bloodSplatters) {
+      for (const splat of this.bloodSplatters) {
+        if (splat.fadeTween) {
+          splat.fadeTween.stop();
+        }
+        splat.destroy();
+      }
+      this.bloodSplatters = [];
     }
   }
 
@@ -1153,6 +1183,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.abilityManager) {
       this.abilityManager.destroy();
     }
+    this.clearBloodSplats();
     this.hideVisualHelp();
     this.mosquitoManager.destroy();
     this.swatter.destroy();

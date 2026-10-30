@@ -28,47 +28,47 @@ export class Environment {
 
     // Exact Polygon Colliders for exposed leg skin with numeric IDs for manual tweaking
     this.leftLegPoints = [
-      { id: 0, x: 260, y: 680 },
-      { id: 1, x: 215, y: 620 },
-      { id: 2, x: 185, y: 520 },
-      { id: 3, x: 180, y: 420 },
-      { id: 4, x: 190, y: 340 },
-      { id: 5, x: 230, y: 290 },
-      { id: 6, x: 310, y: 280 },
-      { id: 7, x: 360, y: 290 },
-      { id: 8, x: 385, y: 335 },
-      { id: 9, x: 390, y: 400 },
-      { id: 10, x: 460, y: 520 },
-      { id: 11, x: 530, y: 610 },
-      { id: 12, x: 620, y: 680 },
-      { id: 13, x: 480, y: 700 },
-      { id: 14, x: 350, y: 700 },
+      { id: 0, x: 366, y: 669 },
+      { id: 1, x: 315, y: 604 },
+      { id: 2, x: 283, y: 540 },
+      { id: 3, x: 260, y: 438 },
+      { id: 4, x: 264, y: 313 },
+      { id: 5, x: 292, y: 264 },
+      { id: 6, x: 354, y: 241 },
+      { id: 7, x: 403, y: 271 },
+      { id: 8, x: 445, y: 320 },
+      { id: 9, x: 493, y: 375 },
+      { id: 10, x: 530, y: 431 },
+      { id: 11, x: 584, y: 473 },
+      { id: 12, x: 621, y: 550 },
+      { id: 13, x: 547, y: 624 },
+      { id: 14, x: 456, y: 660 },
     ];
 
     this.rightLegPoints = [
-      { id: 0, x: 750, y: 680 },
-      { id: 1, x: 840, y: 610 },
-      { id: 2, x: 910, y: 520 },
-      { id: 3, x: 985, y: 400 },
-      { id: 4, x: 990, y: 335 },
-      { id: 5, x: 1015, y: 290 },
-      { id: 6, x: 1065, y: 280 },
-      { id: 7, x: 1145, y: 290 },
-      { id: 8, x: 1185, y: 340 },
-      { id: 9, x: 1195, y: 420 },
-      { id: 10, x: 1190, y: 520 },
-      { id: 11, x: 1160, y: 620 },
-      { id: 12, x: 1115, y: 680 },
-      { id: 13, x: 1020, y: 700 },
-      { id: 14, x: 890, y: 700 },
+      { id: 0, x: 748, y: 540 },
+      { id: 1, x: 782, y: 484 },
+      { id: 2, x: 833, y: 433 },
+      { id: 3, x: 880, y: 369 },
+      { id: 4, x: 919, y: 320 },
+      { id: 5, x: 979, y: 269 },
+      { id: 6, x: 1028, y: 239 },
+      { id: 7, x: 1090, y: 283 },
+      { id: 8, x: 1106, y: 352 },
+      { id: 9, x: 1109, y: 431 },
+      { id: 10, x: 1095, y: 523 },
+      { id: 11, x: 1051, y: 607 },
+      { id: 12, x: 1000, y: 672 },
+      { id: 13, x: 893, y: 648 },
+      { id: 14, x: 808, y: 602 },
     ];
 
     this.leftLegPolygon = new Phaser.Geom.Polygon(this.leftLegPoints);
     this.rightLegPolygon = new Phaser.Geom.Polygon(this.rightLegPoints);
 
     // Bounding boxes for efficient rejection sampling
-    this.leftBounds = { minX: 180, maxX: 620, minY: 280, maxY: 700 };
-    this.rightBounds = { minX: 750, maxX: 1195, minY: 280, maxY: 700 };
+    this.leftBounds = { minX: 260, maxX: 621, minY: 241, maxY: 669 };
+    this.rightBounds = { minX: 748, maxX: 1109, minY: 239, maxY: 672 };
 
     this.biteGraphics = this.scene.add.graphics().setDepth(5);
 

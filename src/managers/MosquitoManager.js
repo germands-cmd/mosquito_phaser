@@ -361,11 +361,19 @@ export class MosquitoManager {
   getVariantCallbacks(mosquito) {
     return {
       duration: Phaser.Math.Between(400, 900),
-      onReach: () => this.callbacks.onBite?.(mosquito.x, mosquito.y, mosquito),
-      onBite: () => this.callbacks.onBite?.(mosquito.x, mosquito.y, mosquito),
-      onDamage: (m, tickCount) => this.callbacks.onFeedingDamage?.(
-        m, tickCount, m.attackDamagePerSecond
-      ),
+      onReach: (m = mosquito) => this.callbacks.onBite?.(m.x, m.y, m),
+      onBite: (m = mosquito) => this.callbacks.onBite?.(m.x, m.y, m),
+      onDamage: (m, tickCount) => {
+        if (tickCount === 1) {
+          this.audioManager.playBite();
+          const biteX = m.targetPosition ? m.targetPosition.x : m.x;
+          const biteY = m.targetPosition ? m.targetPosition.y : m.y;
+          this.environment.addBiteMark(biteX, biteY);
+        }
+        if (this.callbacks.onFeedingDamage) {
+          this.callbacks.onFeedingDamage(m, tickCount, m.attackDamagePerSecond);
+        }
+      },
       onDeath: (m, source) => this.handleEnemyDeath(m, source)
     };
   }
@@ -405,7 +413,11 @@ export class MosquitoManager {
     for (const target of [...this.mosquitoPool]) {
       if (target === enemy || !target.isAlive() || !target.isVulnerable()) continue;
       if (Phaser.Math.Distance.Between(enemy.x, enemy.y, target.x, target.y) <= config.bloodExplosionRadius) {
+        const wasAlive = target.isAlive();
         target.takeDamage(config.bloodExplosionDamage, 'blood-explosion');
+        if (wasAlive && !target.isAlive() && this.callbacks.onHit) {
+          this.callbacks.onHit(target.x, target.y);
+        }
       }
     }
   }

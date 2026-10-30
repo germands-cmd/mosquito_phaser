@@ -8,6 +8,7 @@
         "build:electron": "npm i && npx vite build -c electron.vite.config.js",
         "release:electron": "npm i && npm run build:electron && electron-builder --publish never",
         "start": "npm i && npx vite",
+        "tools:colliders": "node tools/server.js",
         "build": "npm i && npx vite build --outDir docs/"
     },
     "repository": {

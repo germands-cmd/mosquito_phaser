@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editor de Colliders - Mosquito Legs</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo">🦟 <span>Leg Collider Editor</span></div>
+      <div class="status-badge" id="server-status">Modo Standalone</div>
+    </div>
+    <div class="header-center">
+      <div class="btn-group">
+        <button id="btn-select-both" class="btn active">Ambas Piernas</button>
+        <button id="btn-select-left" class="btn btn-cyan">Pierna Izquierda</button>
+        <button id="btn-select-right" class="btn btn-magenta">Pierna Derecha</button>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="btn-undo" class="btn btn-icon" title="Deshacer (Ctrl+Z)">↩ Deshacer</button>
+      <button id="btn-redo" class="btn btn-icon" title="Rehacer (Ctrl+Y)">↪ Rehacer</button>
+      <button id="btn-test-sample" class="btn btn-warning" title="Genera 80 puntos aleatorios para probar colisión">🎯 Probar Muestreo</button>
+      <button id="btn-save-file" class="btn btn-success" title="Guarda directamente en src/entities/Environment.js">💾 Guardar en Proyecto</button>
+      <button id="btn-copy-code" class="btn btn-primary" title="Copia el código JavaScript al portapapeles">📋 Copiar Código</button>
+    </div>
+  </header>
+
+  <main class="editor-main">
+    <div class="canvas-viewport" id="viewport">
+      <div class="canvas-wrapper" id="canvas-wrapper">
+        <canvas id="collider-canvas" width="1376" height="768"></canvas>
+      </div>
+      <div class="canvas-overlay-controls">
+        <button id="btn-zoom-in" class="btn-tool">+</button>
+        <button id="btn-zoom-reset" class="btn-tool">100%</button>
+        <button id="btn-zoom-fit" class="btn-tool">Ajustar</button>
+        <button id="btn-zoom-out" class="btn-tool">-</button>
+        <span class="zoom-label" id="zoom-label">100%</span>
+      </div>
+      <div class="canvas-instructions">
+        <span>🖱️ <b>Arrastrar:</b> Mover vértice</span>
+        <span>➕ <b>Doble clic en borde:</b> Insertar vértice</span>
+        <span>❌ <b>Clic derecho en vértice:</b> Eliminar</span>
+        <span>⌨️ <b>Flechas:</b> Ajustar fino</span>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="tabs">
+        <button id="tab-left" class="tab-btn active-cyan">Pierna Izq (<span id="count-left">0</span>)</button>
+        <button id="tab-right" class="tab-btn">Pierna Der (<span id="count-right">0</span>)</button>
+        <button id="tab-code" class="tab-btn">Código JS</button>
+      </div>
+
+      <div class="sidebar-content" id="sidebar-points-view">
+        <div class="sidebar-card">
+          <div class="card-title" id="active-leg-title">Pierna Izquierda</div>
+          <div class="bounds-info" id="bounds-info">
+            Bounds: minX: 0, maxX: 0, minY: 0, maxY: 0
+          </div>
+          <div class="sidebar-actions">
+            <button id="btn-add-point" class="btn btn-sm btn-secondary">+ Añadir Vértice al final</button>
+            <button id="btn-reset-leg" class="btn btn-sm btn-danger">Restaurar Original</button>
+          </div>
+        </div>
+
+        <div class="points-list-container">
+          <table class="points-table">
+            <thead>
+              <tr>
+                <th width="40">ID</th>
+                <th>X</th>
+                <th>Y</th>
+                <th width="40"></th>
+              </tr>
+            </thead>
+            <tbody id="points-tbody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="sidebar-content hidden" id="sidebar-code-view">
+        <div class="code-header">
+          <span>src/entities/Environment.js</span>
+          <button id="btn-copy-code-tab" class="btn btn-sm btn-primary">Copiar Código</button>
+        </div>
+        <pre class="code-preview" id="code-preview"></pre>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="btn-export-json" class="btn btn-sm btn-outline">Exportar JSON</button>
+        <button id="btn-import-json" class="btn btn-sm btn-outline">Importar JSON</button>
+        <input type="file" id="file-import-json" accept=".json" style="display: none;">
+      </div>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast">Mensaje de notificación</div>
+
+  <script src="editor.js"></script>
+</body>
+</html>
