@@ -14,7 +14,8 @@ export const MOSQUITO_TYPES = {
   INCUBATOR: 'incubator',
   BABY: 'baby',
   COWARD: 'coward',
-  PARASITE: 'parasite',
+  DRUNK: 'drunk',
+  HEMATOPHAGE: 'hematophage',
   ZIGZAG: 'zigzag'
 };
 
@@ -23,7 +24,8 @@ export const MOSQUITO_VISUALS = {
   [MOSQUITO_TYPES.INCUBATOR]: { color: 0xf2994a, accent: 0xffc078, label: 'INCUBATOR' },
   [MOSQUITO_TYPES.BABY]: { color: 0x56ccf2, accent: 0xb9efff, label: 'BABY' },
   [MOSQUITO_TYPES.COWARD]: { color: 0xeb5757, accent: 0xff9b9b, label: 'COWARD' },
-  [MOSQUITO_TYPES.PARASITE]: { color: 0xbb6bd9, accent: 0xe0a9f2, label: 'PARASITE' },
+  [MOSQUITO_TYPES.DRUNK]: { color: 0x7067d8, accent: 0xb9b4ff, label: 'DRUNK' },
+  [MOSQUITO_TYPES.HEMATOPHAGE]: { color: 0x8f2d56, accent: 0xf3a4bf, label: 'HEMATOPHAGE' },
   [MOSQUITO_TYPES.ZIGZAG]: { color: 0x6fcf97, accent: 0xb5f2cb, label: 'ZIGZAG' }
 };
 
@@ -52,6 +54,7 @@ export class Mosquito {
     this.attackDamagePerSecond = 1;
     this.targetLeg = null;
     this.onDeath = null;
+    this.deathSource = null;
     this.buzzHandle = null; // Associated audio voice handle
 
     this.container = this.scene.add.container(-100, -100).setDepth(15).setVisible(false);
@@ -96,6 +99,7 @@ export class Mosquito {
   }
 
   configure(config = {}) {
+    this.config = config;
     this.type = config.type || MOSQUITO_TYPES.STANDARD;
     this.maxHealth = Math.max(1, config.maxHealth ?? 1);
     this.health = this.maxHealth;
@@ -123,8 +127,12 @@ export class Mosquito {
         this.typeMarker.fillTriangle(-10, 0, -5, 5, 0, 0);
         this.typeMarker.strokeTriangle(-10, 0, -5, -5, 0, 0);
         this.typeMarker.strokeTriangle(-10, 0, -5, 5, 0, 0);
-      } else if (this.type === MOSQUITO_TYPES.PARASITE) {
-        this.typeMarker.strokeCircle(-5, 0, 5);
+      } else if (this.type === MOSQUITO_TYPES.DRUNK) {
+        this.typeMarker.fillCircle(-5, 0, 5);
+        this.typeMarker.strokeCircle(-5, 0, 7);
+      } else if (this.type === MOSQUITO_TYPES.HEMATOPHAGE) {
+        this.typeMarker.fillRect(-10, -6, 10, 12);
+        this.typeMarker.strokeRect(-10, -6, 10, 12);
       } else if (this.type === MOSQUITO_TYPES.ZIGZAG) {
         this.typeMarker.fillTriangle(-10, -4, -4, 0, -10, 4);
         this.typeMarker.fillTriangle(-2, -4, 4, 0, -2, 4);
@@ -226,6 +234,25 @@ export class Mosquito {
    * @param {number} diveDurationMs (400 - 900ms)
    * @param {Function} onReachTarget
    */
+  startAttack({ spawnPos, targetPos, diveDurationMs, manager, callbacks }) {
+    this.onDeath = callbacks?.onDeath || null;
+    this.startDive(spawnPos, targetPos, diveDurationMs, (biteX, biteY) => {
+      if (manager.callbacks && manager.callbacks.onBite) {
+        manager.callbacks.onBite(biteX, biteY, this);
+      }
+
+      this.startFeeding((m, tickCount) => {
+        if (tickCount === 1) {
+          manager.audioManager.playBite();
+          manager.environment.addBiteMark(biteX, biteY);
+        }
+        if (manager.callbacks && manager.callbacks.onFeedingDamage) {
+          manager.callbacks.onFeedingDamage(m, tickCount, m.attackDamagePerSecond);
+        }
+      });
+    });
+  }
+
   startDive(spawnPos, targetPos, diveDurationMs, onReachTarget) {
     this.stopFeeding();
     this.state = MOSQUITO_STATES.DIVING;
@@ -234,10 +261,7 @@ export class Mosquito {
     this.container.setPosition(this.x, this.y);
     this.container.setVisible(true);
 
-    // Resume normal flight wing-flapping animation
-    if (this.wingFlapTween && this.wingFlapTween.isPaused()) {
-      this.wingFlapTween.resume();
-    }
+    this.resumeFlightAnimation();
 
     // Point proboscis toward target
     const angle = Phaser.Math.Angle.Between(spawnPos.x, spawnPos.y, targetPos.x, targetPos.y);
@@ -261,6 +285,163 @@ export class Mosquito {
         }
       }
     });
+  }
+
+  startCurvedDive(
+    spawnPos,
+    targetPos,
+    diveDurationMs,
+    curveDirection,
+    initialDirection,
+    onReachTarget
+  ) {
+    this.stopFeeding();
+    this.state = MOSQUITO_STATES.DIVING;
+    this.x = spawnPos.x;
+    this.y = spawnPos.y;
+    this.container.setPosition(this.x, this.y);
+    this.container.setVisible(true);
+    this.resumeFlightAnimation();
+
+    const travelAngle = Phaser.Math.Angle.Between(
+      spawnPos.x,
+      spawnPos.y,
+      targetPos.x,
+      targetPos.y
+    );
+    const forward = initialDirection || {
+      x: Math.cos(travelAngle),
+      y: Math.sin(travelAngle)
+    };
+    const side = { x: -forward.y, y: forward.x };
+    const curveAmount = 58 * curveDirection;
+    const controlPoint = {
+      x: spawnPos.x + forward.x * 90 + side.x * curveAmount,
+      y: spawnPos.y + forward.y * 90 + side.y * curveAmount
+    };
+    let pathLength = 0;
+    let previousPoint = spawnPos;
+    for (let i = 1; i <= 12; i++) {
+      const progress = i / 12;
+      const inverse = 1 - progress;
+      const point = {
+        x: inverse * inverse * spawnPos.x +
+          2 * inverse * progress * controlPoint.x +
+          progress * progress * targetPos.x,
+        y: inverse * inverse * spawnPos.y +
+          2 * inverse * progress * controlPoint.y +
+          progress * progress * targetPos.y
+      };
+      pathLength += Phaser.Math.Distance.Between(
+        previousPoint.x,
+        previousPoint.y,
+        point.x,
+        point.y
+      );
+      previousPoint = point;
+    }
+    const directDistance = Phaser.Math.Distance.Between(
+      spawnPos.x,
+      spawnPos.y,
+      targetPos.x,
+      targetPos.y
+    );
+
+    this.container.setRotation(Math.atan2(forward.y, forward.x));
+    if (directDistance < 1) {
+      this.x = targetPos.x;
+      this.y = targetPos.y;
+      this.container.setPosition(this.x, this.y);
+      this.diveTween = null;
+      if (this.state === MOSQUITO_STATES.DIVING && onReachTarget) {
+        onReachTarget(targetPos.x, targetPos.y);
+      }
+      return;
+    }
+
+    const path = { progress: 0 };
+    this.diveTween = this.scene.tweens.add({
+      targets: path,
+      progress: 1,
+      duration: Math.max(1, diveDurationMs * pathLength / directDistance),
+      ease: 'Linear',
+      onUpdate: () => {
+        const progress = path.progress;
+        const inverse = 1 - progress;
+        this.x =
+          inverse * inverse * spawnPos.x +
+          2 * inverse * progress * controlPoint.x +
+          progress * progress * targetPos.x;
+        this.y =
+          inverse * inverse * spawnPos.y +
+          2 * inverse * progress * controlPoint.y +
+          progress * progress * targetPos.y;
+
+        const tangentX =
+          2 * inverse * (controlPoint.x - spawnPos.x) +
+          2 * progress * (targetPos.x - controlPoint.x);
+        const tangentY =
+          2 * inverse * (controlPoint.y - spawnPos.y) +
+          2 * progress * (targetPos.y - controlPoint.y);
+        this.container
+          .setPosition(this.x, this.y)
+          .setRotation(Math.atan2(tangentY, tangentX));
+      },
+      onComplete: () => {
+        this.diveTween = null;
+        if (this.state === MOSQUITO_STATES.DIVING && onReachTarget) {
+          onReachTarget(targetPos.x, targetPos.y);
+        }
+      }
+    });
+  }
+
+  startCurvedAttack({
+    spawnPos,
+    targetPos,
+    diveDurationMs,
+    curveDirection,
+    initialDirection,
+    manager,
+    callbacks
+  }) {
+    this.onDeath = callbacks?.onDeath || null;
+    this.startCurvedDive(
+      spawnPos,
+      targetPos,
+      diveDurationMs,
+      curveDirection,
+      initialDirection,
+      (biteX, biteY) => {
+        if (manager.callbacks && manager.callbacks.onBite) {
+          manager.callbacks.onBite(biteX, biteY, this);
+        }
+        this.startFeeding((mosquito, tickCount) => {
+          if (tickCount === 1) {
+            manager.audioManager.playBite();
+            manager.environment.addBiteMark(biteX, biteY);
+          }
+          if (manager.callbacks && manager.callbacks.onFeedingDamage) {
+            manager.callbacks.onFeedingDamage(
+              mosquito,
+              tickCount,
+              mosquito.attackDamagePerSecond
+            );
+          }
+        });
+      }
+    );
+  }
+
+  resumeFlightAnimation() {
+    if (!this.wingFlapTween) return;
+    if (this.wingLeft && this.wingRight) {
+      this.wingLeft.setScale(1, 1);
+      this.wingRight.setScale(1, 1);
+    }
+    if (this.wingFlapTween.isPaused()) {
+      this.wingFlapTween.resume();
+    }
   }
 
   /**
@@ -407,6 +588,7 @@ export class Mosquito {
     this.stopFeeding();
     this.state = MOSQUITO_STATES.INACTIVE;
     this.health = this.maxHealth;
+    this.deathSource = null;
     this.targetLeg = null;
     this.onDeath = null;
     this.onNonlethalDamage = null;

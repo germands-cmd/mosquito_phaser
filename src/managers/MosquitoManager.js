@@ -1,13 +1,19 @@
 import Phaser from "phaser";
 import { Mosquito, MOSQUITO_STATES, MOSQUITO_TYPES } from "../entities/Mosquito.js";
-import { getEnemyConfig } from "../entities/enemyConfigs.js";
+import { getEnemyConfig, FORMATION_CONFIGS } from "../entities/enemyConfigs.js";
+import { VFormation } from "../entities/formations/VFormation.js";
+import { ColumnFormation } from "../entities/formations/ColumnFormation.js";
+import { CircularFormation } from "../entities/formations/CircularFormation.js";
+import { OscillatingSwarm } from "../entities/formations/OscillatingSwarm.js";
 import {
   IncubatorMosquito,
   BabyMosquito,
   CowardMosquito,
-  ParasiteMosquito,
+  DrunkMosquito,
+  HematophageMosquito,
   ZigzagMosquito
 } from "../entities/EnemyVariants.js";
+import { spawnBabies } from "../entities/enemies/VariantMosquito.js";
 import { DIRECTIONS } from "../audio/AudioManager.js";
 
 export const SPAWN_KEYS = ["LEFT", "TOP_LEFT", "TOP", "TOP_RIGHT", "RIGHT"];
@@ -16,18 +22,6 @@ export const GAME_MODES = {
   AUDIO: "AUDIO",
   NO_AUDIO: "NO_AUDIO",
 };
-
-export const DIFFICULTY_LEVELS = {
-  EASY: { key: "EASY", label: "Easy", minMs: 5400, maxMs: 5800 },
-  NORMAL: { key: "NORMAL", label: "Normal", minMs: 3800, maxMs: 4400 },
-  HARD: { key: "HARD", label: "Hard", minMs: 2400, maxMs: 3000 },
-};
-
-export const DIFFICULTY_KEYS = ["EASY", "NORMAL", "HARD"];
-
-// Aliases for backwards compatibility
-export const SPEED_LEVELS = DIFFICULTY_LEVELS;
-export const SPEED_KEYS = DIFFICULTY_KEYS;
 
 /**
  * MosquitoManager.js
@@ -60,14 +54,79 @@ export class MosquitoManager {
     this.waveSize = 3; // X mosquitoes per wave
 
     this.mode = GAME_MODES.AUDIO;
-    this.difficultyLevel = "NORMAL";
-    this.speedLevel = "NORMAL";
     this.lastDirection = null;
+    this.formations = new Set();
+    this.nextTopFormationLeg = 'left';
 
     // Pre-populate pool with initial entities
     for (let i = 0; i < 15; i++) {
       this.mosquitoPool.push(this.createEnemy(MOSQUITO_TYPES.STANDARD));
     }
+
+  }
+
+  getEnemyConfig(type) {
+    return getEnemyConfig(type);
+  }
+
+  getFormationSpawnPosition(dirData) {
+    const width = this.scene.scale.width;
+    const height = this.scene.scale.height;
+    const margin = 140;
+    switch (dirData.name) {
+      case "LEFT":
+        return { x: -margin, y: Phaser.Math.Between(150, height - 150) };
+      case "TOP_LEFT":
+        return { x: -margin, y: -margin };
+      case "TOP":
+        return { x: Phaser.Math.Between(200, width - 200), y: -margin };
+      case "TOP_RIGHT":
+        return { x: width + margin, y: -margin };
+      case "RIGHT":
+        return { x: width + margin, y: Phaser.Math.Between(150, height - 150) };
+      default:
+        return { x: width / 2, y: -margin };
+    }
+  }
+
+  getDirection(directionKey) {
+    return DIRECTIONS[directionKey] || DIRECTIONS.TOP;
+  }
+
+  getFormationTargetLeg(directionKey) {
+    if (directionKey === 'LEFT' || directionKey === 'TOP_LEFT') {
+      return 'left';
+    }
+    if (directionKey === 'RIGHT' || directionKey === 'TOP_RIGHT') {
+      return 'right';
+    }
+    const targetLeg = this.nextTopFormationLeg;
+    this.nextTopFormationLeg = targetLeg === 'left' ? 'right' : 'left';
+    return targetLeg;
+  }
+
+  spawnVFormation(directionKey = "TOP") {
+    if (!this.isRunning) return;
+    new VFormation(this, directionKey, FORMATION_CONFIGS.V).start();
+  }
+
+  spawnColumnFormation(directionKey = "TOP") {
+    if (!this.isRunning) return;
+    new ColumnFormation(this, directionKey, FORMATION_CONFIGS.COLUMN).start();
+  }
+
+  spawnCircularFormation(directionKey = "TOP") {
+    if (!this.isRunning) return;
+    new CircularFormation(this, directionKey, FORMATION_CONFIGS.CIRCULAR).start();
+  }
+
+  spawnOscillatingSwarm(directionKey = "TOP") {
+    if (!this.isRunning) return;
+    new OscillatingSwarm(
+      this,
+      directionKey,
+      FORMATION_CONFIGS.OSCILLATING_SWARM
+    ).start();
   }
 
   createEnemy(type) {
@@ -76,7 +135,8 @@ export class MosquitoManager {
       [MOSQUITO_TYPES.INCUBATOR]: IncubatorMosquito,
       [MOSQUITO_TYPES.BABY]: BabyMosquito,
       [MOSQUITO_TYPES.COWARD]: CowardMosquito,
-      [MOSQUITO_TYPES.PARASITE]: ParasiteMosquito,
+      [MOSQUITO_TYPES.DRUNK]: DrunkMosquito,
+      [MOSQUITO_TYPES.HEMATOPHAGE]: HematophageMosquito,
       [MOSQUITO_TYPES.ZIGZAG]: ZigzagMosquito
     };
     const enemy = new (constructors[type] || Mosquito)(this.scene);
@@ -86,17 +146,6 @@ export class MosquitoManager {
 
   setMode(mode) {
     this.mode = mode;
-  }
-
-  setDifficulty(diffKey) {
-    if (DIFFICULTY_LEVELS[diffKey]) {
-      this.difficultyLevel = diffKey;
-      this.speedLevel = diffKey;
-    }
-  }
-
-  setSpeed(speedKey) {
-    this.setDifficulty(speedKey);
   }
 
   /**
@@ -160,6 +209,10 @@ export class MosquitoManager {
     for (const m of this.mosquitoPool) {
       m.deactivate();
     }
+    for (const formation of this.formations) {
+      formation.stop();
+    }
+    this.formations.clear();
 
     this.audioManager.stopAllMosquitoBuzzes();
 
@@ -175,6 +228,20 @@ export class MosquitoManager {
   spawnWave(count = 5) {
     if (!this.isRunning) return;
 
+    if (count >= 5 && Math.random() < 0.2) {
+      const directionKey = Phaser.Math.RND.pick(SPAWN_KEYS);
+      if (Math.random() < 0.25) {
+        this.spawnVFormation(directionKey);
+      } else if (Math.random() < 0.5) {
+        this.spawnColumnFormation(directionKey);
+      } else if (Math.random() < 0.75) {
+        this.spawnCircularFormation(directionKey);
+      } else {
+        this.spawnOscillatingSwarm(directionKey);
+      }
+      return;
+    }
+
     for (let i = 0; i < count; i++) {
       const randomKey = Phaser.Math.RND.pick(SPAWN_KEYS);
       this.spawnSingleMosquito(randomKey, this.selectWaveType());
@@ -185,8 +252,9 @@ export class MosquitoManager {
     const roll = Math.random();
     if (roll < 0.08) return MOSQUITO_TYPES.INCUBATOR;
     if (roll < 0.18) return MOSQUITO_TYPES.COWARD;
+    if (roll < 0.23) return MOSQUITO_TYPES.DRUNK;
+    if (roll < 0.27) return MOSQUITO_TYPES.HEMATOPHAGE;
     if (roll < 0.28) return MOSQUITO_TYPES.ZIGZAG;
-    if (roll < 0.36) return MOSQUITO_TYPES.PARASITE;
     return MOSQUITO_TYPES.STANDARD;
   }
 
@@ -301,60 +369,20 @@ export class MosquitoManager {
     const targetPos = this.environment.getRandomSkinTarget(isRightLeg);
 
     // Scale dive duration based on selected speed level
-    const diffConfig = DIFFICULTY_LEVELS[this.difficultyLevel] || DIFFICULTY_LEVELS.NORMAL;
-    const diveDurationMs = Phaser.Math.Between(
-      diffConfig.minMs,
-      diffConfig.maxMs,
+    const distance = Phaser.Math.Distance.Between(
+      spawnPos.x,
+      spawnPos.y,
+      targetPos.x,
+      targetPos.y
     );
+    const diveDurationMs = Math.max(450, distance / mosquito.config.movementSpeed * 1000);
 
-    if (mosquito.type === MOSQUITO_TYPES.PARASITE) {
-      mosquito.initAttack(spawnPos, this.getVariantCallbacks(mosquito));
-      return;
-    }
-    if (mosquito.type === MOSQUITO_TYPES.ZIGZAG) {
-      mosquito.initAttack(spawnPos, this.environment.getNearestLeg(spawnPos), this.getVariantCallbacks(mosquito));
-      return;
-    }
-    if (mosquito.type === MOSQUITO_TYPES.COWARD) {
-      mosquito.initAttack(spawnPos, targetPos, this.environment.getNearestLeg(spawnPos), this.getVariantCallbacks(mosquito));
-      return;
-    }
-    if (mosquito.type === MOSQUITO_TYPES.BABY) {
-      const angle = Phaser.Math.Angle.Between(spawnPos.x, spawnPos.y, targetPos.x, targetPos.y);
-      mosquito.launch(
-        spawnPos,
-        { x: Math.cos(angle) * mosquito.config.groupMovementSpeed, y: Math.sin(angle) * mosquito.config.groupMovementSpeed },
-        0,
-        this.getVariantCallbacks(mosquito)
-      );
-      return;
-    }
-    const initAttack = mosquito.initAttack ? (spawn, target, leg, callbacks) =>
-      mosquito.initAttack(spawn, target, leg, callbacks) : null;
-    if (initAttack) {
-      initAttack(spawnPos, targetPos, this.environment.getNearestLeg(spawnPos), this.getVariantCallbacks(mosquito));
-      return;
-    }
-    mosquito.startDive(spawnPos, targetPos, diveDurationMs, (biteX, biteY) => {
-      // Mosquito reached skin without being swatted
-      // Note: addBiteMark and playBite are deferred to first damage tick
-      // so the visual only appears after actual damage is confirmed.
-
-      if (this.callbacks.onBite) {
-        this.callbacks.onBite(biteX, biteY, mosquito);
-      }
-
-      // Enter FEEDING state: attaches to leg and deals 1 damage every full second
-      mosquito.startFeeding((m, tickCount) => {
-        // On the very first tick, show bite mark and play bite sound
-        if (tickCount === 1) {
-          this.audioManager.playBite();
-          this.environment.addBiteMark(biteX, biteY);
-        }
-        if (this.callbacks.onFeedingDamage) {
-          this.callbacks.onFeedingDamage(m, tickCount, m.attackDamagePerSecond);
-        }
-      });
+    mosquito.startAttack({
+      spawnPos,
+      targetPos,
+      diveDurationMs,
+      manager: this,
+      callbacks: this.getVariantCallbacks(mosquito)
     });
   }
 
@@ -378,48 +406,45 @@ export class MosquitoManager {
     };
   }
 
-  spawnBabies(incubator) {
-    const config = getEnemyConfig(MOSQUITO_TYPES.INCUBATOR);
-    const count = Phaser.Math.Between(config.minBabiesSpawned, config.maxBabiesSpawned);
-    const leg = incubator.targetLeg || this.environment.getNearestLeg(incubator);
-    const legCenter = this.environment.getLegCenter(leg);
-    const centralAngle = Phaser.Math.Angle.Between(legCenter.x, legCenter.y, incubator.x, incubator.y);
-    for (let i = 0; i < count; i++) {
-      const baby = this.getAvailableMosquito(MOSQUITO_TYPES.BABY);
-      const angle = centralAngle + Phaser.Math.FloatBetween(
-        -config.babyLaunchConeAngle / 2, config.babyLaunchConeAngle / 2
-      );
-      const speed = config.babyLaunchSpeed;
-      baby.launch(
-        { x: incubator.x, y: incubator.y },
-        { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
-        Phaser.Math.FloatBetween(config.babyActivationDelay.min, config.babyActivationDelay.max),
-        this.getVariantCallbacks(baby)
-      );
-      baby.onDeath = (m, source) => this.handleEnemyDeath(m, source);
-    }
-  }
-
   handleEnemyDeath(enemy, source) {
-    if (enemy.type === MOSQUITO_TYPES.INCUBATOR) this.spawnBabies(enemy);
-    if (enemy.type === MOSQUITO_TYPES.COWARD) {
-      this.resolveBloodExplosion(enemy);
+    if (enemy.type !== MOSQUITO_TYPES.BABY) {
+      const activeHematophages = this.mosquitoPool.filter(
+        mosquito =>
+          mosquito.isAlive() &&
+          mosquito.type === MOSQUITO_TYPES.HEMATOPHAGE
+      );
+      for (const hematophage of activeHematophages) {
+        spawnBabies(
+          this,
+          hematophage,
+          Phaser.Math.FloatBetween(0, Math.PI * 2),
+          hematophage.config
+        );
+      }
+    }
+    if (typeof enemy.onKilled === 'function') {
+      enemy.onKilled(this, source);
     }
   }
 
-  resolveBloodExplosion(enemy) {
-    const config = getEnemyConfig(MOSQUITO_TYPES.COWARD);
-    this.callbacks.onAreaEffect?.(enemy.x, enemy.y, config.bloodExplosionRadius);
-    for (const target of [...this.mosquitoPool]) {
-      if (target === enemy || !target.isAlive() || !target.isVulnerable()) continue;
-      if (Phaser.Math.Distance.Between(enemy.x, enemy.y, target.x, target.y) <= config.bloodExplosionRadius) {
-        const wasAlive = target.isAlive();
-        target.takeDamage(config.bloodExplosionDamage, 'blood-explosion');
-        if (wasAlive && !target.isAlive() && this.callbacks.onHit) {
-          this.callbacks.onHit(target.x, target.y);
+  /**
+   * Returns list of swattable mosquitoes within hit radius that are not shielded.
+   * @param {number} swatX
+   * @param {number} swatY
+   * @param {number} hitRadius
+   * @returns {Mosquito[]}
+   */
+  getSwattableHits(swatX, swatY, hitRadius) {
+    const hitMosquitoes = [];
+    for (const m of this.mosquitoPool) {
+      if (m.isSwattable()) {
+        const dist = Phaser.Math.Distance.Between(swatX, swatY, m.x, m.y);
+        if (dist <= hitRadius + m.radius) {
+          hitMosquitoes.push(m);
         }
       }
     }
+    return hitMosquitoes;
   }
 
   /**
@@ -431,19 +456,7 @@ export class MosquitoManager {
    * @returns {boolean} True if at least one mosquito was hit
    */
   trySwat(swatX, swatY, hitRadius) {
-    const hitMosquitoes = [];
-
-    for (const m of this.mosquitoPool) {
-      if (m.isSwattable()) {
-        const dist = Phaser.Math.Distance.Between(swatX, swatY, m.x, m.y);
-        if (dist <= hitRadius + m.radius) {
-          if (this.isHostProtectedByAttachedParasite(m, swatX, swatY, hitRadius)) {
-            continue;
-          }
-          hitMosquitoes.push(m);
-        }
-      }
-    }
+    const hitMosquitoes = this.getSwattableHits(swatX, swatY, hitRadius);
 
     if (hitMosquitoes.length > 0) {
       for (const m of hitMosquitoes) {
@@ -464,15 +477,6 @@ export class MosquitoManager {
     return false;
   }
 
-  isHostProtectedByAttachedParasite(host, swatX, swatY, hitRadius) {
-    return this.mosquitoPool.some((parasite) =>
-      parasite.host === host &&
-      parasite.state === 'PARASITIC' &&
-      Phaser.Math.Distance.Between(swatX, swatY, parasite.x, parasite.y) <=
-        hitRadius + parasite.radius
-    );
-  }
-
   /**
    * Returns the count of active mosquitoes currently in WARNING, DIVING, or FEEDING state.
    * @returns {number}
@@ -487,6 +491,9 @@ export class MosquitoManager {
   }
 
   update(time, delta) {
+    for (const formation of [...this.formations]) {
+      formation.update(delta);
+    }
     for (const enemy of this.mosquitoPool) {
       if (enemy.isAlive() && typeof enemy.update === 'function') enemy.update(delta);
     }

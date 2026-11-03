@@ -2,12 +2,12 @@
 
 ## 1. Purpose
 
-This document specifies the gameplay behavior, state machines, combat rules, visual characteristics, and configuration requirements for six mosquito enemy types.
+This document specifies the gameplay behavior, state machines, combat rules, visual characteristics, and configuration requirements for five mosquito enemy types.
 
 The standard mosquito is already implemented and serves as the baseline for movement, targeting, biting, damage, and death behavior.
 
 Core Requirements
-Implement the five new mosquito types while preserving the existing standard mosquito behavior.
+Implement the four new mosquito types while preserving the existing standard mosquito behavior.
 Make all relevant gameplay parameters easily configurable without modifying enemy behavior code.
 Use explicit state machines for enemies with multiple behaviors.
 Ensure movement and damage calculations are frame-rate independent.
@@ -34,7 +34,6 @@ Standard Mosquito	1	1
 Incubator Mosquito	1	1
 Baby Mosquito	1	1
 Coward Mosquito	3	3
-Parasite Mosquito	1	2
 Zigzag Mosquito	2	2
 
 Where necessary, represent hit-based durability with a configurable health or hit-point system consistent with the existing combat implementation.
@@ -238,88 +237,14 @@ attackDamagePerSecond — default: 3.
 escapeDistance or escapeDuration.
 reappearanceDelay.
 reappearanceEntryMargin.
-bloodExplosionRadius.
-bloodExplosionDamage.
-bloodExplosionKnockback, if knockback is supported.
-bloodExplosionAffectsPlayer — default: false.
+minBabiesSpawned — default: 1.
+maxBabiesSpawned — default: 3.
+babyLaunchSpeed.
+babyLaunchConeAngle.
+babyActivationDelay.
 visualScale.
 
-## 7. Parasite Mosquito
-Properties
-Health: 1 hit when vulnerable.
-Damage: 2 damage per second.
-Search movement: Moderately fast.
-Attached movement: Matches the host's movement speed.
-Biting movement: Normal movement speed.
-State Machine
-
-The parasite mosquito has three primary states:
-
-Searching
-Parasitic
-Biting
-State A: Searching
-Find the nearest valid mosquito host.
-Move toward that host at the configurable search speed.
-Attach when within the configurable attachment range.
-Enter Parasitic.
-
-While searching, the parasite is vulnerable to hits and can be defeated in one hit.
-
-If no valid host is available, continue searching according to the configured search rules.
-
-State B: Parasitic
-
-While attached to a host:
-
-Follow the host's position and rotation.
-Match the host's movement speed and movement direction.
-Maintain a configurable offset slightly behind the host.
-Become immune to ordinary damaging hits while attached.
-If hit, detach immediately and return to Searching.
-Do not lose health when hit in this state.
-Do not transfer the hit's damage to the host.
-Monitor the host's current attack state.
-
-When the host begins biting:
-
-Transition to Biting.
-Target the opposite leg from the host's current target leg.
-
-A hit while attached acts exclusively as a forced detachment. It must not damage or defeat either mosquito.
-
-Host Death or Invalidity
-
-If the host dies, is removed, or otherwise becomes invalid:
-
-Detach immediately.
-Return to Searching.
-Search for another valid mosquito host.
-
-The parasite must not remain attached to a defeated or nonexistent host.
-
-State C: Biting
-Move toward the leg opposite to the host's current target leg.
-Use the configurable normal movement speed.
-Become vulnerable to hits.
-Deal 2 damage per second while biting.
-Follow the existing attack and damage rules.
-
-The parasite must not attack the same leg that its host is currently attacking.
-
-If the host becomes invalid, immediately return to Searching and stop any attack behavior associated with that host.
-
-Configurable Parameters
-searchMovementSpeed.
-movementSpeed.
-attackDamagePerSecond — default: 2.
-hostDetectionRange.
-attachmentRange.
-attachmentPositionOffset.
-attachmentRotationOffset.
-searchRetryInterval, if periodic searching is used.
-
-## 8. Zigzag Mosquito
+## 7. Zigzag Mosquito
 Properties
 Health: 2 hits.
 Damage: 2 damage per second.
@@ -380,7 +305,6 @@ StandardMosquitoConfig
 IncubatorMosquitoConfig
 BabyMosquitoConfig
 CowardMosquitoConfig
-ParasiteMosquitoConfig
 ZigzagMosquitoConfig
 
 These are illustrative names. Adapt them to the project's existing architecture and naming conventions.
@@ -431,19 +355,8 @@ Reverse the approach trajectory during escape.
 Remain vulnerable during escape.
 Preserve health across reappearances.
 Reappear from a randomized screen boundary position.
-Trigger a large blood explosion on death.
-Apply area damage to nearby mosquitoes, including one-hit enemies.
-
-Parasite Mosquito
-Search for the nearest valid mosquito host.
-Attach with stable relative position and rotation.
-Match host movement while attached.
-Become immune to ordinary damaging hits while attached.
-Detach immediately when hit while attached.
-Return to searching without transferring damage to the host.
-Return to searching when the host dies or becomes invalid.
-Attack the opposite leg when the host begins biting.
-Deal 2 damage per second while biting.
+Generate 1–3 baby mosquitoes at the start of each non-lethal escape.
+Launch the babies using the same cone and activation delay as the incubator.
 
 Zigzag Mosquito
 Two-hit defeat.

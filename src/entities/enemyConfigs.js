@@ -6,14 +6,14 @@ export const ENEMY_CONFIGS = {
   [MOSQUITO_TYPES.STANDARD]: {
     type: MOSQUITO_TYPES.STANDARD,
     maxHealth: 1,
-    movementSpeed: 260,
+    movementSpeed: 200,
     attackDamagePerSecond: 1,
     visualScale: 1.3
   },
   [MOSQUITO_TYPES.INCUBATOR]: {
     type: MOSQUITO_TYPES.INCUBATOR,
     maxHealth: 1,
-    movementSpeed: 220,
+    movementSpeed: 190,
     attackDamagePerSecond: 1,
     minBabiesSpawned: 3,
     maxBabiesSpawned: 7,
@@ -39,28 +39,47 @@ export const ENEMY_CONFIGS = {
   [MOSQUITO_TYPES.COWARD]: {
     type: MOSQUITO_TYPES.COWARD,
     maxHealth: 3,
-    movementSpeed: 150,
-    escapeSpeed: 310,
+    movementSpeed: 130,
+    escapeSpeed: 300,
     attackDamagePerSecond: 3,
     escapeDistance: 900,
     reappearanceDelay: 1.4,
     reappearanceEntryMargin: 30,
-    bloodExplosionRadius: 130,
-    bloodExplosionDamage: 1,
-    bloodExplosionAffectsPlayer: false,
+    minBabiesSpawned: 1,
+    maxBabiesSpawned: 3,
+    babyLaunchSpeed: 260,
+    babyLaunchConeAngle: Math.PI / 3,
+    babyActivationDelay: range(0.2, 0.3),
     visualScale: 1.55
   },
-  [MOSQUITO_TYPES.PARASITE]: {
-    type: MOSQUITO_TYPES.PARASITE,
-    maxHealth: 1,
-    searchMovementSpeed: 210,
-    movementSpeed: 180,
+  [MOSQUITO_TYPES.DRUNK]: {
+    type: MOSQUITO_TYPES.DRUNK,
+    maxHealth: 2,
+    movementSpeed: 145,
+    oscillationSpeed: 155,
+    oscillationFrequency: 3.8,
     attackDamagePerSecond: 2,
-    hostDetectionRange: 600,
-    attachmentRange: 22,
-    attachmentPositionOffset: { x: 0, y: 10 },
-    searchRetryInterval: 0.3,
-    visualScale: 1.0
+    visualScale: 1,
+    explosionRadius: 130,
+    explosionColor: 0x7067d8,
+    minBabiesSpawned: 1,
+    maxBabiesSpawned: 3,
+    minimumExplosionVictims: 3,
+    babyLaunchSpeed: 260,
+    babyLaunchConeAngle: Math.PI / 3,
+    babyActivationDelay: range(0.2, 0.3)
+  },
+  [MOSQUITO_TYPES.HEMATOPHAGE]: {
+    type: MOSQUITO_TYPES.HEMATOPHAGE,
+    maxHealth: 3,
+    movementSpeed: 80,
+    attackDamagePerSecond: 5,
+    visualScale: 1.8,
+    babyLaunchSpeed: 260,
+    babyLaunchConeAngle: Math.PI / 3,
+    babyActivationDelay: range(0.2, 0.3),
+    minBabiesSpawned: 2,
+    maxBabiesSpawned: 2
   },
   [MOSQUITO_TYPES.ZIGZAG]: {
     type: MOSQUITO_TYPES.ZIGZAG,
@@ -77,6 +96,38 @@ export const ENEMY_CONFIGS = {
   }
 };
 
+export const FORMATION_CONFIGS = {
+  V: {
+    groupSizeOptions: [5, 7, 9],
+    spacing: 28,
+    arrivalDistance: 170
+  },
+  COLUMN: {
+    minGroupSize: 3,
+    maxGroupSize: 9,
+    spacing: 46,
+    arrivalDistance: 170
+  },
+  CIRCULAR: {
+    groupSizeOptions: [6, 8, 10],
+    radius: 45,
+    arrivalDistance: 220
+  },
+  OSCILLATING_SWARM: {
+    groupSizeOptions: [4, 8, 12],
+    initialSpacing: 18,
+    minSpeedMultiplier: 0.88,
+    maxSpeedMultiplier: 1.12,
+    minOscillationAmplitude: 22,
+    maxOscillationAmplitude: 58,
+    minOscillationFrequency: 0.7,
+    maxOscillationFrequency: 1.8,
+    minimumTravelDurationMs: 900,
+    arrivalWindowMs: 260,
+    finalAttackDurationMs: 450
+  }
+};
+
 export function getEnemyConfig(type) {
   const config = ENEMY_CONFIGS[type] || ENEMY_CONFIGS[MOSQUITO_TYPES.STANDARD];
   return {
@@ -85,4 +136,3 @@ export function getEnemyConfig(type) {
     babyActivationDelay: config.babyActivationDelay && { ...config.babyActivationDelay }
   };
 }
-
