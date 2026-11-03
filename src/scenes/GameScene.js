@@ -14,6 +14,8 @@ import { ReadyOverlay } from "../ui/overlays/ReadyOverlay.js";
 import { PauseOverlay } from "../ui/overlays/PauseOverlay.js";
 import { GameOverOverlay } from "../ui/overlays/GameOverOverlay.js";
 import { DebugOverlay } from "../ui/overlays/DebugOverlay.js";
+import { PhaseResultsOverlay } from "../ui/overlays/PhaseResultsOverlay.js";
+import { PHASE_CONFIGS } from "../progression/PhaseConfig.js";
 
 export const GAME_STATES = {
   READY: "READY",
@@ -41,6 +43,10 @@ export default class GameScene extends Phaser.Scene {
     this.maxHealth = 100;
     this.health = 100;
     this.swats = 0;
+    this.phaseIndex = 0;
+    this.phaseEliminated = 0;
+    this.phaseBites = 0;
+    this.phaseTransitioning = false;
     this.currentMode = GAME_MODES.AUDIO;
 
     // 1. Core Systems
@@ -76,6 +82,10 @@ export default class GameScene extends Phaser.Scene {
         onWarningEnd: () => {
           this.visualHelp.hideAll();
         },
+        onEnemyEliminated: () => {
+          this.phaseEliminated++;
+        },
+        onPhaseComplete: () => this.completePhase(),
       }
     );
 
@@ -113,6 +123,10 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.debugOverlay = new DebugOverlay(this);
+    this.phaseResultsOverlay = new PhaseResultsOverlay(this, {
+      onNext: () => this.startNextPhase(),
+      onMenu: () => this.goToMainMenu(),
+    });
 
     // 7. Input Wiring
     this.setupInputHandlers();
@@ -224,16 +238,61 @@ export default class GameScene extends Phaser.Scene {
   startGame() {
     this.audio.init();
     this.gameState = GAME_STATES.PLAYING;
+    this.phaseTransitioning = false;
+    this.phaseResultsOverlay.hide();
     this.readyOverlay.hide();
     this.pauseOverlay.hide();
     this.gameOverOverlay.hide();
 
+    this.mosquitoManager.setMode(this.currentMode);
+    this.startPhase(0);
+  }
+
+  startPhase(index) {
+    const config = PHASE_CONFIGS[index];
+    if (!config) {
+      this.completePhase();
+      return;
+    }
+    this.phaseIndex = index;
+    this.phaseEliminated = 0;
+    this.phaseBites = 0;
     this.swats = 0;
     this.health = this.maxHealth;
     this.bloodHealthBar.setHealth(this.health, this.maxHealth);
-
+    this.abilityManager?.reset();
+    this.environment.reset();
+    this.visualHelp.hideAll();
+    this.mosquitoManager.stop();
     this.mosquitoManager.setMode(this.currentMode);
-    this.mosquitoManager.start();
+    this.mosquitoManager.start(config);
+  }
+
+  completePhase() {
+    if (this.phaseTransitioning || this.gameState !== GAME_STATES.PLAYING) return;
+    this.phaseTransitioning = true;
+    this.mosquitoManager.stopSpawning();
+    this.gameState = GAME_STATES.READY;
+    this.cameras.main.fadeOut(900, 0, 0, 0);
+    this.time.delayedCall(900, () => {
+      this.phaseResultsOverlay.show({
+        phaseId: this.phaseIndex + 1,
+        eliminated: this.phaseEliminated,
+        bites: this.phaseBites,
+        final: this.phaseIndex === PHASE_CONFIGS.length - 1,
+      });
+    });
+  }
+
+  startNextPhase() {
+    if (!this.phaseTransitioning || this.phaseIndex >= PHASE_CONFIGS.length - 1) return;
+    this.phaseResultsOverlay.hide();
+    this.cameras.main.fadeIn(900, 0, 0, 0);
+    this.time.delayedCall(900, () => {
+      this.phaseTransitioning = false;
+      this.gameState = GAME_STATES.PLAYING;
+      this.startPhase(this.phaseIndex + 1);
+    });
   }
 
   restartGame() {
@@ -281,6 +340,8 @@ export default class GameScene extends Phaser.Scene {
     this.audio.resume();
     this.pauseOverlay.hide();
     this.gameOverOverlay.hide();
+    this.phaseResultsOverlay.hide();
+    this.phaseTransitioning = false;
     this.mosquitoManager.stop();
     this.audio.stopAllMosquitoBuzzes();
     this.clearBloodSplats();
@@ -394,6 +455,9 @@ export default class GameScene extends Phaser.Scene {
   }
 
   handleMosquitoBite(x, y, mosquito) {
+    if (this.gameState === GAME_STATES.PLAYING) {
+      this.phaseBites++;
+    }
     if (this.abilityManager && this.abilityManager.isInvulnerable()) {
       return;
     }
@@ -445,6 +509,7 @@ export default class GameScene extends Phaser.Scene {
     this.readyOverlay?.destroy();
     this.pauseOverlay?.destroy();
     this.gameOverOverlay?.destroy();
+    this.phaseResultsOverlay?.destroy();
     this.debugOverlay?.destroy();
     this.bloodHealthBar?.destroy();
     this.abilityManager?.destroy();

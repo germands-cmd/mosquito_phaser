@@ -15,6 +15,8 @@ import {
 } from "../entities/EnemyVariants.js";
 import { spawnBabies } from "../entities/enemies/VariantMosquito.js";
 import { DIRECTIONS } from "../audio/AudioManager.js";
+import { selectWeighted } from "../progression/WeightedSelection.js";
+import { FORMATIONS } from "../progression/PhaseConfig.js";
 
 export const SPAWN_KEYS = ["LEFT", "TOP_LEFT", "TOP", "TOP_RIGHT", "RIGHT"];
 
@@ -47,11 +49,17 @@ export class MosquitoManager {
     this.mosquitoPool = [];
     this.pendingWarningTimers = new Set();
     this.waveTimer = null;
+    this.phaseTimer = null;
+    this.hordeTimers = [];
+    this.phaseConfig = null;
+    this.phaseExpired = false;
+    this.phaseCompleted = false;
+    this.activeEnemies = new Set();
     this.isRunning = false;
 
     // Swarm wave settings
-    this.waveIntervalMs = 3000; // Wave every X seconds
-    this.waveSize = 3; // X mosquitoes per wave
+    this.waveIntervalMs = 3000;
+    this.waveSize = 3;
 
     this.mode = GAME_MODES.AUDIO;
     this.lastDirection = null;
@@ -170,24 +178,115 @@ export class MosquitoManager {
   /**
    * Starts the wave generator: 5 mosquitoes every 2.5 seconds.
    */
-  start() {
+  start(phaseConfig = null) {
+    this.stopSpawning();
+    this.phaseConfig = phaseConfig;
+    this.phaseExpired = false;
+    this.phaseCompleted = false;
     this.isRunning = true;
 
-    // Launch first wave immediately
-    this.spawnWave(this.waveSize);
+    const config = phaseConfig || {
+      initialSpawnDelayMs: 0,
+      durationMs: Number.POSITIVE_INFINITY,
+      normalSpawn: { intervalMs: this.waveIntervalMs, mosquitoesPerWave: this.waveSize },
+      hordes: [],
+    };
+    this.waveIntervalMs = config.normalSpawn.intervalMs;
+    this.waveSize = config.normalSpawn.mosquitoesPerWave;
 
-    // Continuous recurring wave timer every 2.5s
-    if (this.waveTimer) {
-      this.waveTimer.remove();
-    }
+    const initialDelay = Math.max(0, config.initialSpawnDelayMs || 0);
+    this.scene.time.delayedCall(initialDelay, () => {
+      if (!this.isRunning || this.phaseExpired) return;
+      this.startPhaseSpawning(config);
+    });
+  }
+
+  startPhaseSpawning(config) {
+    this.spawnWave(this.waveSize);
     this.waveTimer = this.scene.time.addEvent({
       delay: this.waveIntervalMs,
       callback: () => {
-        if (!this.isRunning) return;
-        this.spawnWave(this.waveSize);
+        if (this.isRunning && !this.phaseExpired) this.spawnWave(this.waveSize);
       },
-      loop: true,
+      loop: true
     });
+    if (Number.isFinite(config.durationMs)) {
+      this.phaseTimer = this.scene.time.delayedCall(config.durationMs, () => {
+        this.expirePhase();
+      });
+    }
+    this.hordeTimers = config.hordes.map((horde) =>
+      this.scene.time.delayedCall(horde.triggerTimeMs, () => this.startHorde(horde))
+    );
+  }
+
+  startHorde(horde) {
+    if (!this.isRunning || this.phaseExpired) return;
+    this.stopNormalSpawning();
+    const preparation = this.scene.time.delayedCall(
+      horde.preparationDurationMs,
+      () => {
+        if (!this.isRunning || this.phaseExpired) return;
+        this.waveTimer = this.scene.time.addEvent({
+          delay: horde.intervalMs,
+          callback: () => {
+            if (this.isRunning && !this.phaseExpired) {
+              this.spawnWave(horde.mosquitoesPerWave);
+            }
+          },
+          loop: true
+        });
+        this.scene.time.delayedCall(horde.durationMs, () => {
+          if (this.waveTimer) {
+            this.waveTimer.remove();
+            this.waveTimer = null;
+          }
+          if (!this.phaseExpired && this.isRunning) {
+            this.waveTimer = this.scene.time.addEvent({
+              delay: this.waveIntervalMs,
+              callback: () => {
+                if (this.isRunning && !this.phaseExpired) this.spawnWave(this.waveSize);
+              },
+              loop: true
+            });
+          }
+        });
+      }
+    );
+    this.hordeTimers.push(preparation);
+  }
+
+  stopNormalSpawning() {
+    if (this.waveTimer) {
+      this.waveTimer.remove();
+      this.waveTimer = null;
+    }
+  }
+
+  expirePhase() {
+    if (this.phaseExpired) return;
+    this.phaseExpired = true;
+    this.stopSpawning();
+    this.callbacks.onPhaseExpired?.();
+    this.checkPhaseCompletion();
+  }
+
+  stopSpawning() {
+    this.stopNormalSpawning();
+    if (this.phaseTimer) {
+      this.phaseTimer.remove();
+      this.phaseTimer = null;
+    }
+    for (const timer of this.hordeTimers) timer.remove();
+    this.hordeTimers = [];
+  }
+
+  checkPhaseCompletion() {
+    if (!this.phaseExpired || this.phaseCompleted) return;
+    if (this.activeEnemies.size === 0 && this.getActiveCount() === 0) {
+      this.phaseCompleted = true;
+      this.callbacks.onPhaseComplete?.();
+    }
   }
 
   /**
@@ -195,11 +294,7 @@ export class MosquitoManager {
    */
   stop() {
     this.isRunning = false;
-
-    if (this.waveTimer) {
-      this.waveTimer.remove();
-      this.waveTimer = null;
-    }
+    this.stopSpawning();
 
     for (const timer of this.pendingWarningTimers) {
       timer.remove();
@@ -213,6 +308,7 @@ export class MosquitoManager {
       formation.stop();
     }
     this.formations.clear();
+    this.activeEnemies.clear();
 
     this.audioManager.stopAllMosquitoBuzzes();
 
@@ -228,34 +324,38 @@ export class MosquitoManager {
   spawnWave(count = 5) {
     if (!this.isRunning) return;
 
-    if (count >= 5 && Math.random() < 0.2) {
+    const firstType = this.selectWaveType();
+    const formation = firstType === MOSQUITO_TYPES.STANDARD && this.phaseConfig &&
+      selectWeighted(this.phaseConfig.formationWeights);
+    if (formation && formation !== "individual" && count > 0) {
       const directionKey = Phaser.Math.RND.pick(SPAWN_KEYS);
-      if (Math.random() < 0.25) {
-        this.spawnVFormation(directionKey);
-      } else if (Math.random() < 0.5) {
-        this.spawnColumnFormation(directionKey);
-      } else if (Math.random() < 0.75) {
-        this.spawnCircularFormation(directionKey);
-      } else {
-        this.spawnOscillatingSwarm(directionKey);
-      }
+      const formationSpawners = {
+        [FORMATIONS.V]: () => this.spawnVFormation(directionKey),
+        [FORMATIONS.COLUMN]: () => this.spawnColumnFormation(directionKey),
+        [FORMATIONS.CIRCULAR]: () => this.spawnCircularFormation(directionKey),
+        [FORMATIONS.OSCILLATING_SWARM]: () => this.spawnOscillatingSwarm(directionKey)
+      };
+      formationSpawners[formation]?.();
       return;
     }
 
     for (let i = 0; i < count; i++) {
       const randomKey = Phaser.Math.RND.pick(SPAWN_KEYS);
-      this.spawnSingleMosquito(randomKey, this.selectWaveType());
+      this.spawnSingleMosquito(
+        randomKey,
+        i === 0 ? firstType : this.selectWaveType()
+      );
     }
   }
 
   selectWaveType() {
-    const roll = Math.random();
-    if (roll < 0.08) return MOSQUITO_TYPES.INCUBATOR;
-    if (roll < 0.18) return MOSQUITO_TYPES.COWARD;
-    if (roll < 0.23) return MOSQUITO_TYPES.DRUNK;
-    if (roll < 0.27) return MOSQUITO_TYPES.HEMATOPHAGE;
-    if (roll < 0.28) return MOSQUITO_TYPES.ZIGZAG;
-    return MOSQUITO_TYPES.STANDARD;
+    if (!this.phaseConfig) return MOSQUITO_TYPES.STANDARD;
+    const selected = selectWeighted(this.phaseConfig?.enemyWeights);
+    if (!selected) {
+      console.error("No valid enemy weights configured; skipping spawn.");
+      return null;
+    }
+    return selected;
   }
 
   /**
@@ -263,7 +363,7 @@ export class MosquitoManager {
    * @param {string} directionKey
    */
   spawnSingleMosquito(directionKey, type = MOSQUITO_TYPES.STANDARD) {
-    if (!this.isRunning) return;
+    if (!this.isRunning || !type) return;
 
     const mosquito = this.getAvailableMosquito(type);
     const dirData = DIRECTIONS[directionKey] || DIRECTIONS.TOP;
@@ -274,6 +374,7 @@ export class MosquitoManager {
     const spawnPos = this.getSpawnPosition(dirData);
 
     mosquito.state = MOSQUITO_STATES.WARNING;
+    this.activeEnemies.add(mosquito);
     mosquito.x = spawnPos.x;
     mosquito.y = spawnPos.y;
 
@@ -407,6 +508,8 @@ export class MosquitoManager {
   }
 
   handleEnemyDeath(enemy, source) {
+    this.activeEnemies.delete(enemy);
+    this.callbacks.onEnemyEliminated?.(enemy, source);
     if (enemy.type !== MOSQUITO_TYPES.BABY) {
       const activeHematophages = this.mosquitoPool.filter(
         mosquito =>
@@ -497,6 +600,11 @@ export class MosquitoManager {
     for (const enemy of this.mosquitoPool) {
       if (enemy.isAlive() && typeof enemy.update === 'function') enemy.update(delta);
     }
+    for (const enemy of this.mosquitoPool) {
+      if (enemy.isAlive()) this.activeEnemies.add(enemy);
+      else this.activeEnemies.delete(enemy);
+    }
+    this.checkPhaseCompletion();
   }
 
   destroy() {
