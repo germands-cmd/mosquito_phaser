@@ -64,15 +64,12 @@ export class AbilityManager {
     this.attackSpeedBoost     = config.attackSpeedBoost     !== undefined ? config.attackSpeedBoost : 1.25;
     this.slotCooldownMs       = config.slotCooldownMs       || [0, 2000];
 
-    // Ability instances
-    this.abilities = [
-      new PressureBombAbility(),
-      new ReverseTransfusionAbility(),
-    ];
+    // Ability instances - starts empty (acquired per phase)
+    this.abilities = [];
 
     // Per-slot state — each slot is fully independent
-    this.slotStates         = [ABILITY_STATES.READY, ABILITY_STATES.READY];
-    this.slotCooldownTimers = [null, null];
+    this.slotStates         = [];
+    this.slotCooldownTimers = [];
     this.impactCount         = 0;
     this.reverseTransfusionReadyAt = 0;
     this.reverseTransfusionCooldownStartedAt = 0;
@@ -94,8 +91,41 @@ export class AbilityManager {
 
     // HUD
     this.ui = new AbilityUI(this.scene, this.abilities);
-    this.ui.updateAbilityProgress(0, 0);
-    this.ui.updateAbilityProgress(1, 1);
+  }
+
+  /**
+   * Equips a new ability instance into the next available slot.
+   * @param {import('./BaseAbility.js').BaseAbility} ability
+   * @returns {number} Slot index where the ability was equipped
+   */
+  equipAbility(ability) {
+    if (!ability) return -1;
+    const existingIndex = this.abilities.findIndex(a => a.id === ability.id);
+    if (existingIndex !== -1) return existingIndex;
+
+    const slotIndex = this.abilities.length;
+    this.abilities.push(ability);
+    this.slotStates.push(ABILITY_STATES.READY);
+    this.slotCooldownTimers.push(null);
+
+    if (ability.id === "REVERSE_TRANSFUSION") {
+      this.reverseTransfusionReadyAt = 0;
+      this.reverseTransfusionCooldownStartedAt = 0;
+    }
+
+    this.ui.setAbilities(this.abilities);
+    this.ui.updateSlotState(slotIndex, ABILITY_STATES.READY);
+    this.ui.flashAbilityReady(slotIndex);
+
+    return slotIndex;
+  }
+
+  /**
+   * Returns array of IDs of currently equipped abilities.
+   * @returns {string[]}
+   */
+  getEquippedAbilityIds() {
+    return this.abilities.map(a => a.id);
   }
 
   // ---------------------------------------------------------------------------
@@ -215,7 +245,7 @@ export class AbilityManager {
   handleSwatImpact(impactX, impactY, hitRadius, hitMosquitoes = []) {
     const isHit = hitMosquitoes && hitMosquitoes.length > 0;
 
-    if (!isHit) return false;
+    if (!isHit || this.abilities.length === 0) return false;
 
     const now = this.scene.time.now;
     this.impactCount++;
@@ -229,28 +259,26 @@ export class AbilityManager {
       return triggered;
     }
 
-    const pressureBomb = this.abilities[0];
-    if (
-      this.slotStates[0] === ABILITY_STATES.READY &&
-      this.impactCount % pressureBomb.impactInterval === 0
-    ) {
-      this._triggerEffect(0, false, impactX, impactY, hitRadius, hitMosquitoes);
-      this.ui.updateAbilityProgress(0, 0);
-      this.ui.flashAbilityReady(0);
-      triggered = true;
-    }
+    this.abilities.forEach((ability, index) => {
+      if (this.slotStates[index] !== ABILITY_STATES.READY) return;
 
-    const reverseTransfusion = this.abilities[1];
-    if (
-      this.slotStates[1] === ABILITY_STATES.READY &&
-      now >= this.reverseTransfusionReadyAt
-    ) {
-      this.reverseTransfusionReadyAt = now + reverseTransfusion.cooldownMs;
-      this.reverseTransfusionCooldownStartedAt = now;
-      this.ui.updateAbilityProgress(1, 0);
-      this._triggerEffect(1, false, impactX, impactY, hitRadius, hitMosquitoes);
-      triggered = true;
-    }
+      if (ability.id === "PRESSURE_BOMB") {
+        if (this.impactCount % ability.impactInterval === 0) {
+          this._triggerEffect(index, false, impactX, impactY, hitRadius, hitMosquitoes);
+          this.ui.updateAbilityProgress(index, 0);
+          this.ui.flashAbilityReady(index);
+          triggered = true;
+        }
+      } else if (ability.id === "REVERSE_TRANSFUSION") {
+        if (now >= this.reverseTransfusionReadyAt) {
+          this.reverseTransfusionReadyAt = now + ability.cooldownMs;
+          this.reverseTransfusionCooldownStartedAt = now;
+          this.ui.updateAbilityProgress(index, 0);
+          this._triggerEffect(index, false, impactX, impactY, hitRadius, hitMosquitoes);
+          triggered = true;
+        }
+      }
+    });
 
     return triggered;
   }
@@ -314,7 +342,8 @@ export class AbilityManager {
    * @private
    */
   _startCooldown(slotIndex) {
-    const durationMs = slotIndex === 1
+    const ability = this.abilities[slotIndex];
+    const durationMs = ability && ability.id === "REVERSE_TRANSFUSION"
       ? Math.max(0, this.reverseTransfusionReadyAt - this.scene.time.now)
       : (this.slotCooldownMs[slotIndex] ?? 0);
 
@@ -551,8 +580,11 @@ export class AbilityManager {
     this.impactCount = 0;
     this.reverseTransfusionReadyAt = 0;
     this.reverseTransfusionCooldownStartedAt = 0;
-    this.ui.updateAbilityProgress(0, 0);
-    this.ui.updateAbilityProgress(1, 1);
+
+    this.abilities.forEach((ability, index) => {
+      this.ui.updateAbilityProgress(index, ability.id === "REVERSE_TRANSFUSION" ? 1 : 0);
+    });
+
     this.stressSystem.reset();
     this.ui.updateStressBar(0, false);
     this.scene.cameras.main.setScroll(0, 0);
@@ -563,6 +595,17 @@ export class AbilityManager {
     if (this.audioManager && this.audioManager.exitSlowMotionAudio) {
       this.audioManager.exitSlowMotionAudio(0.05);
     }
+  }
+
+  /**
+   * Resets all abilities and slots for a brand-new run.
+   */
+  resetRun() {
+    this.reset();
+    this.abilities = [];
+    this.slotStates = [];
+    this.slotCooldownTimers = [];
+    this.ui.setAbilities([]);
   }
 
   // ---------------------------------------------------------------------------
@@ -595,25 +638,28 @@ export class AbilityManager {
       }
     }
 
-    const pressureBomb = this.abilities[0];
-    const pressureProgress = this.impactCount % pressureBomb.impactInterval / pressureBomb.impactInterval;
-    this.ui.updateAbilityProgress(0, pressureProgress);
-
-    if (this.reverseTransfusionReadyAt > 0) {
-      const cooldownDuration = this.abilities[1].cooldownMs;
-      const reverseProgress = Phaser.Math.Clamp(
-        (this.scene.time.now - this.reverseTransfusionCooldownStartedAt) / cooldownDuration,
-        0,
-        1
-      );
-      this.ui.updateAbilityProgress(1, reverseProgress);
-      if (reverseProgress >= 1 && this.slotStates[1] === ABILITY_STATES.READY) {
-        this.ui.flashAbilityReady(1);
-        this.reverseTransfusionReadyAt = 0;
+    this.abilities.forEach((ability, index) => {
+      if (ability.id === "PRESSURE_BOMB") {
+        const pressureProgress = (this.impactCount % ability.impactInterval) / ability.impactInterval;
+        this.ui.updateAbilityProgress(index, pressureProgress);
+      } else if (ability.id === "REVERSE_TRANSFUSION") {
+        if (this.reverseTransfusionReadyAt > 0) {
+          const cooldownDuration = ability.cooldownMs;
+          const reverseProgress = Phaser.Math.Clamp(
+            (this.scene.time.now - this.reverseTransfusionCooldownStartedAt) / cooldownDuration,
+            0,
+            1
+          );
+          this.ui.updateAbilityProgress(index, reverseProgress);
+          if (reverseProgress >= 1 && this.slotStates[index] === ABILITY_STATES.READY) {
+            this.ui.flashAbilityReady(index);
+            this.reverseTransfusionReadyAt = 0;
+          }
+        } else {
+          this.ui.updateAbilityProgress(index, 1);
+        }
       }
-    } else {
-      this.ui.updateAbilityProgress(1, 1);
-    }
+    });
 
     // Stage 2 sequence countdown (inactive in Stage 1)
     if (this.slotStates.some(s => s === ABILITY_STATES.ENTERING_SEQUENCE)) {

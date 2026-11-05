@@ -39,6 +39,7 @@ export class GameOverOverlay {
         color: "#e62e2e",
         stroke: "#2e0505",
         strokeThickness: 8,
+        resolution: 2,
       })
       .setOrigin(0.5);
     this.container.add(title);
@@ -48,6 +49,7 @@ export class GameOverOverlay {
         fontFamily: "sans-serif",
         fontSize: "22px",
         color: "#e5d0be",
+        resolution: 2,
       })
       .setOrigin(0.5);
     this.container.add(this.statsText);
@@ -65,6 +67,7 @@ export class GameOverOverlay {
         fontFamily: '"Impact", "Arial Black", sans-serif',
         fontSize: "26px",
         color: "#ffffff",
+        resolution: 2,
       })
       .setOrigin(0.5);
     this.container.add(retryText);

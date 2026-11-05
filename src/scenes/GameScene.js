@@ -13,6 +13,8 @@ import { VisualHelpIndicator } from "../ui/VisualHelpIndicator.js";
 import { PauseOverlay } from "../ui/overlays/PauseOverlay.js";
 import { GameOverOverlay } from "../ui/overlays/GameOverOverlay.js";
 import { PhaseResultsOverlay } from "../ui/overlays/PhaseResultsOverlay.js";
+import { AbilitySelectionOverlay } from "../ui/overlays/AbilitySelectionOverlay.js";
+import { getRandomAbilityOptions } from "../abilities/AbilityRegistry.js";
 import { PHASE_CONFIGS } from "../progression/PhaseConfig.js";
 import { createBloodSplat } from "../effects/BloodSplat.js";
 
@@ -113,6 +115,10 @@ export default class GameScene extends Phaser.Scene {
       onNext: () => this.startNextPhase(),
       onMenu: () => this.goToMainMenu(),
     });
+
+    this.abilitySelectionOverlay = new AbilitySelectionOverlay(this, {
+      onConfirm: (abilityDef) => this.handleAbilitySelected(abilityDef),
+    });
     this.transitionOverlay = this.add
       .rectangle(0, 0, this.scale.width, this.scale.height, 0x000000)
       .setOrigin(0)
@@ -121,6 +127,7 @@ export default class GameScene extends Phaser.Scene {
 
     // 7. Input Wiring
     this.setupInputHandlers();
+    this.abilityManager?.resetRun();
     this.startPhase(0);
     this.fadeFromBlack();
   }
@@ -174,6 +181,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.input.on("pointerdown", (pointer) => {
       if (pointer.button !== 0) return;
+      if (this.abilitySelectionOverlay?.isVisible()) return;
       this.audio.prime();
 
       if (this.abilityManager && this.abilityManager.isInvulnerable()) return;
@@ -234,7 +242,9 @@ export default class GameScene extends Phaser.Scene {
       this.phaseResultsOverlay.hide();
       this.pauseOverlay.hide();
       this.gameOverOverlay.hide();
+      this.abilitySelectionOverlay?.hide();
 
+      this.abilityManager?.resetRun();
       this.mosquitoManager.setMode(this.currentMode);
       this.startPhase(0);
       this.fadeFromBlack();
@@ -258,7 +268,33 @@ export default class GameScene extends Phaser.Scene {
     this.visualHelp.hideAll();
     this.mosquitoManager.stop();
     this.mosquitoManager.setMode(this.currentMode);
-    this.mosquitoManager.start(config);
+
+    this.currentPhaseConfig = config;
+    this.promptAbilitySelection();
+  }
+
+  promptAbilitySelection() {
+    const equippedIds = this.abilityManager ? this.abilityManager.getEquippedAbilityIds() : [];
+    const options = getRandomAbilityOptions(equippedIds, 3);
+    this.abilitySelectionOverlay.show({
+      phaseNumber: this.phaseIndex + 1,
+      options,
+    });
+  }
+
+  handleAbilitySelected(abilityDef) {
+    if (abilityDef && typeof abilityDef.createInstance === "function") {
+      const instance = abilityDef.createInstance();
+      // Override the class-hardcoded iconSymbol with the registry's (supports raw SVG)
+      if (abilityDef.iconSymbol !== undefined) {
+        instance.iconSymbol = abilityDef.iconSymbol;
+      }
+      this.abilityManager?.equipAbility(instance);
+    }
+    this.abilitySelectionOverlay.hide();
+    if (this.currentPhaseConfig) {
+      this.mosquitoManager.start(this.currentPhaseConfig);
+    }
   }
 
   completePhase() {
@@ -315,10 +351,11 @@ export default class GameScene extends Phaser.Scene {
   restartGame() {
     this.gameOverOverlay.hide();
     this.pauseOverlay.hide();
+    this.abilitySelectionOverlay?.hide();
     this.clearBloodSplats();
     this.environment.reset();
     this.visualHelp.hideAll();
-    this.abilityManager?.reset();
+    this.abilityManager?.resetRun();
     this.health = this.maxHealth;
     this.bloodHealthBar?.reset();
     this.startGame();
@@ -347,7 +384,8 @@ export default class GameScene extends Phaser.Scene {
     this.tweens.resumeAll();
     this.audio.resume();
     this.pauseOverlay.hide();
-    this.abilityManager?.reset();
+    this.abilitySelectionOverlay?.hide();
+    this.abilityManager?.resetRun();
     this.restartGame();
   }
 
@@ -358,13 +396,14 @@ export default class GameScene extends Phaser.Scene {
     this.pauseOverlay.hide();
     this.gameOverOverlay.hide();
     this.phaseResultsOverlay.hide();
+    this.abilitySelectionOverlay?.hide();
     this.phaseTransitioning = false;
     this.mosquitoManager.stop();
     this.audio.stopAllMosquitoBuzzes();
     this.clearBloodSplats();
     this.environment.reset();
     this.visualHelp.hideAll();
-    this.abilityManager?.reset();
+    this.abilityManager?.resetRun();
     this.health = this.maxHealth;
     this.bloodHealthBar?.reset();
     this.transitionOverlay.setAlpha(0);
@@ -511,6 +550,7 @@ export default class GameScene extends Phaser.Scene {
     this.pauseOverlay?.destroy();
     this.gameOverOverlay?.destroy();
     this.phaseResultsOverlay?.destroy();
+    this.abilitySelectionOverlay?.destroy();
     this.transitionTween?.stop();
     this.transitionOverlay?.destroy();
     this.bloodHealthBar?.destroy();

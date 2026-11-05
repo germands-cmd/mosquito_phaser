@@ -28,9 +28,9 @@ export class StressSystem {
    * @param {number} [config.streakCap=2.0]      - Maximum streak multiplier
    */
   constructor(config = {}) {
-    this.maxStress       = config.maxStress       ?? 100;
-    this.baseHitStress   = config.baseHitStress   ?? 4;
-    this.biteStress      = config.biteStress      ?? 2;
+    this.maxStress       = config.maxStress       ?? 150;
+    this.baseHitStress   = config.baseHitStress   ?? 3;
+    this.biteStress      = config.biteStress      ?? 1;
     this.streakIncrement = config.streakIncrement ?? 0.05;
     this.streakCap       = config.streakCap       ?? 1.5;
 

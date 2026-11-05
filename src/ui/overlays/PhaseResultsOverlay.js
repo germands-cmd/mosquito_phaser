@@ -16,13 +16,15 @@ export class PhaseResultsOverlay {
     this.title = this.scene.add.text(center, 170, "", {
       fontFamily: '"Impact", "Arial Black", sans-serif',
       fontSize: "58px",
-      color: "#f0d7bf"
+      color: "#f0d7bf",
+      resolution: 2,
     }).setOrigin(0.5);
     this.stats = this.scene.add.text(center, 290, "", {
       fontFamily: "sans-serif",
       fontSize: "24px",
       color: "#e5d0be",
-      align: "center"
+      align: "center",
+      resolution: 2,
     }).setOrigin(0.5);
     this.container.add([this.title, this.stats]);
     this.next = this.createButton(center, 430, "NEXT PHASE", () => this.callbacks.onNext?.());
@@ -38,7 +40,8 @@ export class PhaseResultsOverlay {
     const text = this.scene.add.text(x, y, label, {
       fontFamily: '"Impact", "Arial Black", sans-serif',
       fontSize: "24px",
-      color: "#ffffff"
+      color: "#ffffff",
+      resolution: 2,
     }).setOrigin(0.5);
     const zone = this.scene.add.zone(x, y, 290, 56).setInteractive({ cursor: "pointer" });
     zone.on("pointerdown", onClick);

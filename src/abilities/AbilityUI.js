@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { createAbilityIcon } from './IconRenderer.js';
 
 export const UI_KEY_SYMBOLS = {
   Q: 'Q',
@@ -63,16 +64,18 @@ export class AbilityUI {
     const healthBar = this.scene.bloodHealthBar;
     const cardW = 48;
     const cardH = 48;
-    const gap = 14;
+    const gap = 12;
     const barMargin = 10;
     const cardY = healthBar
       ? healthBar.y - cardH - barMargin
       : height - 49 - cardH - barMargin;
 
-    const totalWidth = 2 * cardW + gap;
+    this.maxSlots = 5;
+    const totalWidth = this.maxSlots * cardW + (this.maxSlots - 1) * gap;
     const startX = cx - totalWidth / 2;
 
-    this.slotViews = this.abilities.map((ability, idx) => {
+    this.slotViews = [];
+    for (let idx = 0; idx < this.maxSlots; idx++) {
       const cardX = startX + idx * (cardW + gap);
       const container = this.scene.add.container(cardX, cardY);
 
@@ -88,12 +91,18 @@ export class AbilityUI {
       iconBg.strokeRect(7, 7, cardW - 14, cardH - 14);
       container.add(iconBg);
 
-      const iconText = this.scene.add.text(cardW / 2, cardH / 2, ability.iconSymbol, {
-        fontSize: '21px'
-      }).setOrigin(0.5);
-      container.add(iconText);
+      const ability = this.abilities[idx] || null;
+      const iconHandler = createAbilityIcon(
+        this.scene,
+        container,
+        cardW / 2,
+        cardH / 2,
+        ability ? (ability.iconSymbol || '') : '',
+        24,
+        ability?.id || `slot_${idx}`
+      );
 
-      // Cooldown progress bar (shown in COOLDOWN state)
+      // Cooldown progress bar (shown in COOLDOWN / availability)
       const cooldownBar = this.scene.add.graphics();
       container.add(cooldownBar);
 
@@ -102,23 +111,48 @@ export class AbilityUI {
 
       this.hudContainer.add(container);
 
-      return {
+      this.slotViews.push({
         ability,
         container,
         bg,
         iconBg,
-        iconText,
+        iconHandler,
         cooldownBar,
         readyFlash,
         cardW,
         cardH,
-        state: 'READY',
-        progressRatio: idx === 1 ? 1 : 0,
+        state: ability ? 'READY' : 'LOCKED',
+        progressRatio: 0,
         cooldownStartTime: 0,
         cooldownDurationMs: 2000,
-      };
-    });
+      });
+    }
 
+    this.renderSlotViews();
+  }
+
+  /**
+   * Updates equipped abilities and refreshes HUD slots.
+   * @param {Array<import('./BaseAbility.js').BaseAbility>} abilities
+   */
+  setAbilities(abilities = []) {
+    this.abilities = abilities;
+    for (let idx = 0; idx < this.maxSlots; idx++) {
+      const view = this.slotViews[idx];
+      if (!view) continue;
+      const ability = this.abilities[idx] || null;
+      view.ability = ability;
+      if (ability) {
+        view.iconHandler?.updateSymbol(ability.iconSymbol || '', ability.id || `slot_${idx}`);
+        if (view.state === 'LOCKED') {
+          view.state = 'READY';
+        }
+      } else {
+        view.iconHandler?.updateSymbol('');
+        view.state = 'LOCKED';
+        view.progressRatio = 0;
+      }
+    }
     this.renderSlotViews();
   }
 
@@ -145,6 +179,22 @@ export class AbilityUI {
     for (const view of this.slotViews) {
       view.bg.clear();
       view.cooldownBar.clear();
+
+      if (!view.ability || view.state === 'LOCKED') {
+        view.bg.fillStyle(0x120c09, 0.45);
+        view.bg.fillRect(0, 0, view.cardW, view.cardH);
+        view.bg.lineStyle(1.5, 0x2e1e14, 0.5);
+        view.bg.strokeRect(0, 0, view.cardW, view.cardH);
+        view.container.setAlpha(0.6);
+        view.iconBg.setVisible(false);
+        if (view.iconHandler?.gameObject) view.iconHandler.gameObject.setVisible(false);
+        view.cooldownBar.setVisible(false);
+        continue;
+      }
+
+      view.iconBg.setVisible(true);
+      if (view.iconHandler?.gameObject) view.iconHandler.gameObject.setVisible(true);
+      view.cooldownBar.setVisible(true);
 
       if (view.state === 'READY') {
         if (this.isStressFull) {
@@ -176,12 +226,6 @@ export class AbilityUI {
         view.bg.fillRect(0, 0, view.cardW, view.cardH);
         view.bg.lineStyle(3, 0xffffff, 1);
         view.bg.strokeRect(0, 0, view.cardW, view.cardH);
-      } else if (view.state === 'LOCKED') {
-        view.bg.fillStyle(0x120c09, 0.65);
-        view.bg.fillRect(0, 0, view.cardW, view.cardH);
-        view.bg.lineStyle(1.5, 0x2e1e14, 0.6);
-        view.bg.strokeRect(0, 0, view.cardW, view.cardH);
-        view.container.setAlpha(0.5);
       } else if (view.state === 'COOLDOWN') {
         view.bg.fillStyle(0x12100e, 0.85);
         view.bg.fillRect(0, 0, view.cardW, view.cardH);
@@ -190,7 +234,9 @@ export class AbilityUI {
         view.container.setAlpha(0.7);
       } else if (view.state === 'FRENZY_ACTIVE') {
         // Ability color from the ability definition
-        const abilityColor = Phaser.Display.Color.HexStringToColor(view.ability.color).color;
+        const abilityColor = view.ability.color
+          ? Phaser.Display.Color.HexStringToColor(view.ability.color).color
+          : 0xff3344;
         view.bg.fillStyle(0x2a0e1e, 1);
         view.bg.fillRect(0, 0, view.cardW, view.cardH);
         view.bg.lineStyle(3, abilityColor, 1);
@@ -199,7 +245,6 @@ export class AbilityUI {
       }
 
       this.updateAbilityProgress(this.slotViews.indexOf(view), view.progressRatio);
-
     }
   }
 
@@ -211,7 +256,7 @@ export class AbilityUI {
    */
   updateAbilityProgress(slotIndex, ratio) {
     const view = this.slotViews[slotIndex];
-    if (!view) return;
+    if (!view || !view.ability) return;
 
     const clampedRatio = Phaser.Math.Clamp(ratio, 0, 1);
     view.progressRatio = clampedRatio;
@@ -231,7 +276,7 @@ export class AbilityUI {
    */
   flashAbilityReady(slotIndex) {
     const view = this.slotViews[slotIndex];
-    if (!view) return;
+    if (!view || !view.ability) return;
 
     view.readyFlash.clear();
     view.readyFlash.lineStyle(5, 0xffffff, 1);
@@ -350,8 +395,9 @@ export class AbilityUI {
       onComplete: () => { this.stressBarContainer.setScale(1); }
     });
 
-    // Gold border flash on each slot card
+    // Gold border flash on each equipped slot card
     for (const view of this.slotViews) {
+      if (!view.ability) continue;
       this.scene.tweens.add({
         targets: view.container,
         alpha: 0.4,
@@ -434,7 +480,8 @@ export class AbilityUI {
       fontFamily: '"Arial Black", sans-serif',
       fontSize: '11px',
       color: '#ffcc77',
-      letterSpacing: 2
+      letterSpacing: 2,
+      resolution: 2,
     }).setOrigin(0.5);
     this.sequenceContainer.add(this.seqTitleText);
 
@@ -499,7 +546,8 @@ export class AbilityUI {
       const text = this.scene.add.text(0, -1, symbol, {
         fontFamily: '"Impact", "Arial Black", sans-serif',
         fontSize: '22px',
-        color: '#ffffff'
+        color: '#ffffff',
+        resolution: 2,
       }).setOrigin(0.5);
       container.add(text);
 
@@ -663,6 +711,9 @@ export class AbilityUI {
   }
 
   destroy() {
+    for (const view of this.slotViews) {
+      if (view.iconHandler) view.iconHandler.destroy();
+    }
     if (this.hudContainer) this.hudContainer.destroy();
     if (this.stressBarContainer) this.stressBarContainer.destroy();
     if (this.frenzyVignette) this.frenzyVignette.destroy();

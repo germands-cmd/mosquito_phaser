@@ -43,6 +43,7 @@ export class PauseOverlay {
         color: "#f0dfce",
         stroke: "#1a0806",
         strokeThickness: 6,
+        resolution: 2,
       })
       .setOrigin(0.5);
     this.container.add(title);
@@ -54,6 +55,7 @@ export class PauseOverlay {
         fontSize: "16px",
         color: "#c4b3a4",
         letterSpacing: 1,
+        resolution: 2,
       })
       .setOrigin(0.5);
     this.container.add(resumeLabel);
@@ -86,6 +88,7 @@ export class PauseOverlay {
         fontFamily: '"Impact", "Arial Black", sans-serif',
         fontSize: "22px",
         color: "#ffffff",
+        resolution: 2,
       })
       .setOrigin(0.5);
     container.add(txt);

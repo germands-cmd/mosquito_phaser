@@ -11,9 +11,15 @@ const config = {
   height: 768,
   parent: 'juego',
   backgroundColor: '#000000',
+  roundPixels: true,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH
+  },
+  render: {
+    pixelArt: false,
+    antialias: true,
+    roundPixels: true
   },
   scene: [MainMenuScene, GameScene]
 };
