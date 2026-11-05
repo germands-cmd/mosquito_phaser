@@ -283,15 +283,15 @@ export class AbilitySelectionOverlay {
     }
 
     // Enable confirm button
-    this.updateConfirmButton(true, "CONFIRMAR");
+    this.updateConfirmButton(true, "CONFIRM");
   }
 
   /**
    * Updates visual appearance and interactive state of the confirm button.
    * @param {boolean} isEnabled
-   * @param {string} [label="CONFIRMAR"]
+   * @param {string} [label="CONFIRM"]
    */
-  updateConfirmButton(isEnabled, label = "CONFIRMAR") {
+  updateConfirmButton(isEnabled, label = "CONFIRM") {
     this.isConfirmEnabled = isEnabled;
     this.confirmBtnText.setText(label);
 
