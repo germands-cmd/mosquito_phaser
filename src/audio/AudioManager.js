@@ -66,6 +66,22 @@ export class AudioManager {
     this.isUnlocked = true;
   }
 
+  prime() {
+    this.init();
+    if (!this.ctx || this.ctx.state === 'closed') return;
+
+    const resumePromise = this.ctx.state === 'suspended'
+      ? this.ctx.resume()
+      : Promise.resolve();
+    resumePromise.then(() => {
+      if (!this.ctx || this.ctx.state !== 'running') return;
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+      source.connect(this.masterGain);
+      source.start();
+    }).catch(() => {});
+  }
+
   /**
    * Starts a procedural mosquito buzz with directional spatialization.
    * Radically lowered volume so multiple mosquitoes buzzing together form a balanced, pleasant swarm.
@@ -327,6 +343,10 @@ export class AudioManager {
    */
   playSwatHit() {
     if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().then(() => this.playSwatHit()).catch(() => {});
+      return;
+    }
     const now = this.ctx.currentTime;
 
     // Noise burst for slap/crack
@@ -375,6 +395,10 @@ export class AudioManager {
    */
   playSwatMiss() {
     if (!this.ctx) return;
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().then(() => this.playSwatMiss()).catch(() => {});
+      return;
+    }
     const now = this.ctx.currentTime;
 
     const bufferSize = this.ctx.sampleRate * 0.12;

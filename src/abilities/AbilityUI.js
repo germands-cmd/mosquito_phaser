@@ -13,11 +13,11 @@ export const UI_ARROW_SYMBOLS = UI_KEY_SYMBOLS;
 /**
  * AbilityUI.js
  * Renders and animates:
- * 1. Bottom Ability HUD cards just above the SWATS / BITES banner
- * 2. Stress gauge bar displayed between the ability cards and the banner
+ * 1. Bottom ability icon containers above the health/stress bars
+ * 2. Stress gauge rendered behind and around the health bar
  * 3. Vertically and horizontally centered sequence input panel with immediate slots,
  *    staggered pop-in, 3D arcade keycaps, punch bounce feedback, and countdown bar.
- * 4. Frenzy feedback: screen vignette, frenzy timer arc on the active slot icon
+ * 4. Frenzy feedback: screen vignette and availability progress on each slot
  */
 export class AbilityUI {
   /**
@@ -52,7 +52,7 @@ export class AbilityUI {
   }
 
   /**
-   * 1. Creates Ability HUD cards placed directly above the bottom Swats/Bites banner.
+   * 1. Creates square ability icon containers above the health/stress bars.
    */
   createHUD() {
     this.hudContainer = this.scene.add.container(0, 0).setDepth(31);
@@ -60,13 +60,14 @@ export class AbilityUI {
     const height = this.scene.scale.height;
     const cx = width / 2;
 
-    // Swats/Bites banner is at y = height - 52 (height 40px)
-    // Stress bar sits just above the banner; ability cards sit above the stress bar.
-    // Layout (bottom → top): banner (40px) | gap(4) | stress bar (10px) | gap(6) | cards (38px)
-    const cardY = height - 98 - 20; // shifted up 20px to make room for the stress bar
-    const cardW = 152;
-    const cardH = 38;
-    const gap = 16;
+    const healthBar = this.scene.bloodHealthBar;
+    const cardW = 48;
+    const cardH = 48;
+    const gap = 14;
+    const barMargin = 10;
+    const cardY = healthBar
+      ? healthBar.y - cardH - barMargin
+      : height - 49 - cardH - barMargin;
 
     const totalWidth = 2 * cardW + gap;
     const startX = cx - totalWidth / 2;
@@ -75,55 +76,29 @@ export class AbilityUI {
       const cardX = startX + idx * (cardW + gap);
       const container = this.scene.add.container(cardX, cardY);
 
-      // Card background
+      // Outer square state container
       const bg = this.scene.add.graphics();
       container.add(bg);
 
-      // Key slot badge [1] or [2]
-      const badgeBg = this.scene.add.graphics();
-      badgeBg.fillStyle(0x3d2817, 1);
-      badgeBg.fillRoundedRect(6, 6, 26, 26, 4);
-      badgeBg.lineStyle(1.5, 0x8c6d4f, 1);
-      badgeBg.strokeRoundedRect(6, 6, 26, 26, 4);
-      container.add(badgeBg);
+      // Inner square icon container
+      const iconBg = this.scene.add.graphics();
+      iconBg.fillStyle(0x3d2817, 1);
+      iconBg.fillRect(7, 7, cardW - 14, cardH - 14);
+      iconBg.lineStyle(1.5, 0x8c6d4f, 1);
+      iconBg.strokeRect(7, 7, cardW - 14, cardH - 14);
+      container.add(iconBg);
 
-      const keyText = this.scene.add.text(19, 19, ability.slotKey, {
-        fontFamily: '"Impact", "Arial Black", sans-serif',
-        fontSize: '15px',
-        color: '#ffddaa'
-      }).setOrigin(0.5);
-      container.add(keyText);
-
-      // Ability icon symbol
-      const iconText = this.scene.add.text(46, 19, ability.iconSymbol, {
-        fontSize: '18px'
+      const iconText = this.scene.add.text(cardW / 2, cardH / 2, ability.iconSymbol, {
+        fontSize: '21px'
       }).setOrigin(0.5);
       container.add(iconText);
-
-      // Ability name
-      const nameText = this.scene.add.text(64, 12, ability.name.toUpperCase(), {
-        fontFamily: '"Arial Black", sans-serif',
-        fontSize: '9px',
-        color: '#f0dfce'
-      }).setOrigin(0, 0.5);
-      container.add(nameText);
-
-      // Status text
-      const statusText = this.scene.add.text(64, 25, 'READY', {
-        fontFamily: 'monospace',
-        fontSize: '9px',
-        fontWeight: 'bold',
-        color: '#55dd66'
-      }).setOrigin(0, 0.5);
-      container.add(statusText);
 
       // Cooldown progress bar (shown in COOLDOWN state)
       const cooldownBar = this.scene.add.graphics();
       container.add(cooldownBar);
 
-      // Frenzy timer arc graphics (shown in FRENZY_ACTIVE state)
-      const frenzyArc = this.scene.add.graphics();
-      container.add(frenzyArc);
+      const readyFlash = this.scene.add.graphics().setAlpha(0);
+      container.add(readyFlash);
 
       this.hudContainer.add(container);
 
@@ -131,14 +106,16 @@ export class AbilityUI {
         ability,
         container,
         bg,
-        statusText,
+        iconBg,
+        iconText,
         cooldownBar,
-        frenzyArc,
+        readyFlash,
         cardW,
         cardH,
         state: 'READY',
+        progressRatio: idx === 1 ? 1 : 0,
         cooldownStartTime: 0,
-        cooldownDurationMs: 5000,
+        cooldownDurationMs: 2000,
       };
     });
 
@@ -168,113 +145,133 @@ export class AbilityUI {
     for (const view of this.slotViews) {
       view.bg.clear();
       view.cooldownBar.clear();
-      view.frenzyArc.clear();
 
       if (view.state === 'READY') {
         if (this.isStressFull) {
           view.bg.fillStyle(0x281a0e, 0.96);
-          view.bg.fillRoundedRect(0, 0, view.cardW, view.cardH, 6);
+          view.bg.fillRect(0, 0, view.cardW, view.cardH);
           view.bg.lineStyle(2.5, 0xffcc00, 1); // Gold glowing border for full charge
-          view.bg.strokeRoundedRect(0, 0, view.cardW, view.cardH, 6);
-          view.statusText.setText('FRENZY RDY').setColor('#ffdd44');
+          view.bg.strokeRect(0, 0, view.cardW, view.cardH);
         } else {
           view.bg.fillStyle(0x18100c, 0.9);
-          view.bg.fillRoundedRect(0, 0, view.cardW, view.cardH, 6);
+          view.bg.fillRect(0, 0, view.cardW, view.cardH);
           view.bg.lineStyle(2, 0x4a3220, 0.9);
-          view.bg.strokeRoundedRect(0, 0, view.cardW, view.cardH, 6);
-          view.statusText.setText('READY').setColor('#66ee77');
+          view.bg.strokeRect(0, 0, view.cardW, view.cardH);
         }
         view.container.setAlpha(1.0);
       } else if (view.state === 'ENTERING_SEQUENCE') {
         view.bg.fillStyle(0x2d1808, 0.95);
-        view.bg.fillRoundedRect(0, 0, view.cardW, view.cardH, 6);
+        view.bg.fillRect(0, 0, view.cardW, view.cardH);
         view.bg.lineStyle(2.5, 0xffaa22, 1);
-        view.bg.strokeRoundedRect(0, 0, view.cardW, view.cardH, 6);
-        view.statusText.setText('INPUT...').setColor('#ffaa22');
+        view.bg.strokeRect(0, 0, view.cardW, view.cardH);
         view.container.setAlpha(1.0);
       } else if (view.state === 'PREPARED') {
         view.bg.fillStyle(0x35120a, 0.98);
-        view.bg.fillRoundedRect(0, 0, view.cardW, view.cardH, 6);
+        view.bg.fillRect(0, 0, view.cardW, view.cardH);
         view.bg.lineStyle(3, 0xff3322, 1);
-        view.bg.strokeRoundedRect(0, 0, view.cardW, view.cardH, 6);
-        view.statusText.setText('PREPARED!').setColor('#ff3322');
+        view.bg.strokeRect(0, 0, view.cardW, view.cardH);
         view.container.setAlpha(1.0);
       } else if (view.state === 'EXECUTING_EFFECT') {
         view.bg.fillStyle(0x3f1505, 1);
-        view.bg.fillRoundedRect(0, 0, view.cardW, view.cardH, 6);
+        view.bg.fillRect(0, 0, view.cardW, view.cardH);
         view.bg.lineStyle(3, 0xffffff, 1);
-        view.bg.strokeRoundedRect(0, 0, view.cardW, view.cardH, 6);
-        view.statusText.setText('STRIKING!').setColor('#ffffff');
+        view.bg.strokeRect(0, 0, view.cardW, view.cardH);
       } else if (view.state === 'LOCKED') {
         view.bg.fillStyle(0x120c09, 0.65);
-        view.bg.fillRoundedRect(0, 0, view.cardW, view.cardH, 6);
+        view.bg.fillRect(0, 0, view.cardW, view.cardH);
         view.bg.lineStyle(1.5, 0x2e1e14, 0.6);
-        view.bg.strokeRoundedRect(0, 0, view.cardW, view.cardH, 6);
-        view.statusText.setText('BUSY').setColor('#776655');
+        view.bg.strokeRect(0, 0, view.cardW, view.cardH);
         view.container.setAlpha(0.5);
       } else if (view.state === 'COOLDOWN') {
         view.bg.fillStyle(0x12100e, 0.85);
-        view.bg.fillRoundedRect(0, 0, view.cardW, view.cardH, 6);
+        view.bg.fillRect(0, 0, view.cardW, view.cardH);
         view.bg.lineStyle(1.5, 0x3a2a1a, 0.7);
-        view.bg.strokeRoundedRect(0, 0, view.cardW, view.cardH, 6);
-        view.statusText.setText('COOLDOWN').setColor('#887766');
+        view.bg.strokeRect(0, 0, view.cardW, view.cardH);
         view.container.setAlpha(0.7);
-        // Cooldown fill bar drawn across the bottom of the card
-        const elapsed  = this.scene.time.now - view.cooldownStartTime;
-        const ratio    = Phaser.Math.Clamp(1 - elapsed / view.cooldownDurationMs, 0, 1);
-        const fillW    = view.cardW * ratio;
-        view.cooldownBar.fillStyle(0x4a3010, 1);
-        view.cooldownBar.fillRoundedRect(0, view.cardH - 5, fillW, 5, 2);
       } else if (view.state === 'FRENZY_ACTIVE') {
         // Ability color from the ability definition
         const abilityColor = Phaser.Display.Color.HexStringToColor(view.ability.color).color;
         view.bg.fillStyle(0x2a0e1e, 1);
-        view.bg.fillRoundedRect(0, 0, view.cardW, view.cardH, 6);
+        view.bg.fillRect(0, 0, view.cardW, view.cardH);
         view.bg.lineStyle(3, abilityColor, 1);
-        view.bg.strokeRoundedRect(0, 0, view.cardW, view.cardH, 6);
-        view.statusText.setText('FRENZY!').setColor('#' + view.ability.color.replace('#', ''));
+        view.bg.strokeRect(0, 0, view.cardW, view.cardH);
         view.container.setAlpha(1.0);
       }
+
+      this.updateAbilityProgress(this.slotViews.indexOf(view), view.progressRatio);
+
     }
   }
 
   /**
+   * Updates the white availability bar for a slot. The bar represents the
+   * next automatic activation, not the remaining frenzy duration.
+   * @param {number} slotIndex
+   * @param {number} ratio
+   */
+  updateAbilityProgress(slotIndex, ratio) {
+    const view = this.slotViews[slotIndex];
+    if (!view) return;
+
+    const clampedRatio = Phaser.Math.Clamp(ratio, 0, 1);
+    view.progressRatio = clampedRatio;
+    view.cooldownBar.clear();
+    view.cooldownBar.fillStyle(0xffffff, 1);
+    view.cooldownBar.fillRect(
+      3,
+      view.cardH - 8,
+      (view.cardW - 6) * clampedRatio,
+      5
+    );
+  }
+
+  /**
+   * Flashes the outer border when an ability becomes available.
+   * @param {number} slotIndex
+   */
+  flashAbilityReady(slotIndex) {
+    const view = this.slotViews[slotIndex];
+    if (!view) return;
+
+    view.readyFlash.clear();
+    view.readyFlash.lineStyle(5, 0xffffff, 1);
+    view.readyFlash.strokeRect(1, 1, view.cardW - 2, view.cardH - 2);
+    view.readyFlash.setAlpha(1);
+    if (view.readyFlashTween) view.readyFlashTween.stop();
+    view.readyFlashTween = this.scene.tweens.add({
+      targets: view.readyFlash,
+      alpha: 0,
+      duration: 260,
+      ease: 'Quad.easeOut'
+    });
+  }
+
+  /**
    * 2. Stress gauge bar.
-   * Positioned between the ability cards and the Swats/Bites banner.
-   * Two visual states: normal (orange gradient) and FULL (bright gold + pulse).
+   * Positioned below the ability icons, behind the health bar and slightly
+   * larger than it.
+   * Two visual states: normal (orange) and FULL (bright gold + pulse).
    */
   createStressBar() {
-    const width  = this.scene.scale.width;
-    const height = this.scene.scale.height;
-    const cx     = width / 2;
+    const healthBar = this.scene.bloodHealthBar;
+    const barW = (healthBar?.width || 340) + 12;
+    const barH = (healthBar?.height || 24) + 10;
+    const barX = (healthBar?.x || (this.scene.scale.width - barW) / 2) - 6;
+    const barY = (healthBar?.y || this.scene.scale.height - 49) - 5;
 
-    // Place the bar just above the Swats/Bites banner (height - 52), with 4px gap
-    const barW = 320;
-    const barH = 8;
-    const barX = cx - barW / 2;
-    const barY = height - 52 - barH - 6;
-
-    this.stressBarContainer = this.scene.add.container(0, 0).setDepth(31);
+    this.stressBarContainer = this.scene.add.container(0, 0).setDepth(29);
 
     // Background track
     const barBg = this.scene.add.graphics();
     barBg.fillStyle(0x1a100c, 1);
-    barBg.fillRoundedRect(barX, barY, barW, barH, 4);
+    barBg.fillRoundedRect(barX, barY, barW, barH, 8);
     barBg.lineStyle(1, 0x3d2817, 0.8);
-    barBg.strokeRoundedRect(barX, barY, barW, barH, 4);
+    barBg.strokeRoundedRect(barX, barY, barW, barH, 8);
     this.stressBarContainer.add(barBg);
 
     // Stress fill (redrawn each update)
     this.stressBarFill = this.scene.add.graphics();
     this.stressBarContainer.add(this.stressBarFill);
-
-    // "STRESS" label on the left
-    const label = this.scene.add.text(barX, barY - 1, 'STRESS', {
-      fontFamily: 'monospace',
-      fontSize: '7px',
-      color: '#7a5a3a'
-    }).setOrigin(0, 1);
-    this.stressBarContainer.add(label);
 
     this._stressBarX = barX;
     this._stressBarY = barY;
@@ -314,7 +311,7 @@ export class AbilityUI {
       this._stressBarY,
       fillW,
       this._stressBarH,
-      4
+      8
     );
   }
 
@@ -371,10 +368,8 @@ export class AbilityUI {
    * Activates frenzy UI on the given slot:
    * - Screen vignette overlay
    * - FRENZY_ACTIVE card state (handled via updateSlotState)
-   * @param {number} slotIndex
-   * @param {number} durationMs - Total frenzy duration for the timer arc
    */
-  showFrenzyFeedback(slotIndex, durationMs) {
+  showFrenzyFeedback(durationMs) {
     // Screen vignette — deep red semi-transparent overlay at edges
     if (!this.frenzyVignette) {
       const w = this.scene.scale.width;
@@ -396,29 +391,10 @@ export class AbilityUI {
   }
 
   /**
-   * Updates the frenzy timer display.
-   * Redraws the cooldown bar on the active frenzy slot and pulses the vignette.
-   * @param {number} ratio - 1 (full) → 0 (expired)
-   * @param {number} slotIndex
-   */
-  updateFrenzyTimer(ratio, slotIndex) {
-    const view = this.slotViews[slotIndex];
-    if (!view) return;
-
-    view.frenzyArc.clear();
-    const abilityColor = Phaser.Display.Color.HexStringToColor(view.ability.color).color;
-    const fillW = view.cardW * ratio;
-
-    // Frenzy countdown bar along the bottom of the card
-    view.frenzyArc.fillStyle(abilityColor, 0.9);
-    view.frenzyArc.fillRoundedRect(0, view.cardH - 5, fillW, 5, 2);
-  }
-
   /**
-   * Removes frenzy vignette and clears the timer arc.
-   * @param {number} slotIndex
+   * Removes frenzy vignette.
    */
-  hideFrenzyFeedback(slotIndex) {
+  hideFrenzyFeedback() {
     if (this.frenzyVignetteTween) this.frenzyVignetteTween.stop();
     if (this.frenzyVignette) {
       this.frenzyVignetteTween = this.scene.tweens.add({
@@ -429,23 +405,6 @@ export class AbilityUI {
       });
     }
 
-    const view = this.slotViews[slotIndex];
-    if (view) view.frenzyArc.clear();
-  }
-
-  /**
-   * Ticks the cooldown bar fill for slots currently in COOLDOWN state.
-   * Must be called every frame from AbilityManager.update().
-   */
-  tickCooldownBars() {
-    for (const view of this.slotViews) {
-      if (view.state !== 'COOLDOWN') continue;
-      const elapsed = this.scene.time.now - view.cooldownStartTime;
-      const ratio   = Phaser.Math.Clamp(1 - elapsed / view.cooldownDurationMs, 0, 1);
-      view.cooldownBar.clear();
-      view.cooldownBar.fillStyle(0x4a3010, 1);
-      view.cooldownBar.fillRoundedRect(0, view.cardH - 5, view.cardW * ratio, 5, 2);
-    }
   }
 
   /**

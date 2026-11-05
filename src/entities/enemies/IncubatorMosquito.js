@@ -9,7 +9,9 @@ export class IncubatorMosquito extends VariantMosquito {
   }
 
   startAttack({ spawnPos, targetPos, manager, callbacks }) {
-    const leg = manager.environment.getNearestLeg(spawnPos);
+    const leg = callbacks.menuTarget
+      ? callbacks.menuTarget
+      : manager.environment.getNearestLeg(spawnPos);
     this.initAttack(spawnPos, targetPos, leg, callbacks);
   }
 
@@ -36,6 +38,10 @@ export class IncubatorMosquito extends VariantMosquito {
       },
       onComplete: () => {
         if (this.state === MOSQUITO_STATES.DIVING) {
+          if (callbacks.onTargetReached) {
+            callbacks.onTargetReached(this);
+            return;
+          }
           callbacks.onReach(this);
           this.beginFeeding(target, callbacks.onDamage);
         }

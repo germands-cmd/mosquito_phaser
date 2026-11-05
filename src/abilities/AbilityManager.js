@@ -22,11 +22,9 @@ export const DIRECTIONS_LIST = INPUTS_LIST; // Compatibility alias
  * Central coordinator of the active abilities system:
  *
  * Stage 1 (current):
- *   - Manages two independent ability slots (1: Pressure Bomb, 2: Reverse Transfusion)
- *   - Normal mode (stress < 100): pressing a key prepares the slot; next valid hit triggers
- *     the effect once, then the slot enters cooldown.
- *   - Frenzy mode (stress = 100): pressing a key starts a 5-second frenzy window; every
- *     valid hit during that window triggers the empowered effect; cooldown starts at end.
+ *   - Pressure Bomb triggers automatically on every third valid impact.
+ *   - Reverse Transfusion triggers automatically on the next valid impact after a 2-second cooldown.
+ *   - Frenzy mode is started with SPACE and makes every valid impact trigger both abilities.
  *   - Stress / streak system via StressSystem.
  *   - Independent per-slot cooldowns.
  *   - Camera zoom during frenzy, slow-motion transitions.
@@ -64,7 +62,7 @@ export class AbilityManager {
     this.timeLimitMs          = config.timeLimitMs          || 3000;  // Stage 2 sequence timer
     this.frenzyDurationMs     = config.frenzyDurationMs     || 5000;
     this.attackSpeedBoost     = config.attackSpeedBoost     !== undefined ? config.attackSpeedBoost : 1.25;
-    this.slotCooldownMs       = config.slotCooldownMs       || [5000, 5000];
+    this.slotCooldownMs       = config.slotCooldownMs       || [0, 2000];
 
     // Ability instances
     this.abilities = [
@@ -75,9 +73,13 @@ export class AbilityManager {
     // Per-slot state — each slot is fully independent
     this.slotStates         = [ABILITY_STATES.READY, ABILITY_STATES.READY];
     this.slotCooldownTimers = [null, null];
+    this.impactCount         = 0;
+    this.reverseTransfusionReadyAt = 0;
+    this.reverseTransfusionCooldownStartedAt = 0;
 
     // Frenzy tracking
-    this.activeFrenzySlot  = -1;   // Index of the currently active frenzy slot (-1 = none)
+    this.activeFrenzySlot  = -1;   // Legacy compatibility marker; frenzy applies to both slots
+    this.frenzyActive      = false;
     this.frenzyRemainingMs = 0;
 
     // Stage 2: button-sequence tracking (preserved, not wired in Stage 1)
@@ -92,6 +94,8 @@ export class AbilityManager {
 
     // HUD
     this.ui = new AbilityUI(this.scene, this.abilities);
+    this.ui.updateAbilityProgress(0, 0);
+    this.ui.updateAbilityProgress(1, 1);
   }
 
   // ---------------------------------------------------------------------------
@@ -108,71 +112,24 @@ export class AbilityManager {
   }
 
   /**
-   * Returns true when at least one slot is in FRENZY_ACTIVE state.
+   * Returns true while frenzy is active.
    * @returns {boolean}
    */
   isFrenzyActive() {
-    return this.activeFrenzySlot !== -1;
+    return this.frenzyActive;
   }
 
   // ---------------------------------------------------------------------------
-  // Slot activation
+  // Frenzy activation
   // ---------------------------------------------------------------------------
 
   /**
-   * Called when the player presses the key for a given slot (0 = key '1', 1 = key '2').
-   *
-   * Rules:
-   * - Frenzy already active → ignore completely.
-   * - Another slot already PREPARED → ignore (no cancel / queue).
-   * - Target slot not READY → ignore (COOLDOWN or other non-READY state).
-   * - Stress full → enter frenzy on this slot.
-   * - Stress not full → prepare this slot normally.
-   *
-   * @param {number} slotIndex
+   * Starts frenzy when the stress gauge is full.
    */
-  activateSlot(slotIndex) {
-    // Block if frenzy is running
-    if (this.activeFrenzySlot !== -1) return;
-
-    // Block if any slot is already PREPARED
-    if (this.slotStates.some(s => s === ABILITY_STATES.PREPARED)) return;
-
-    // Block if this specific slot is not READY
-    if (this.slotStates[slotIndex] !== ABILITY_STATES.READY) return;
-
-    const ability = this.abilities[slotIndex];
-    if (!ability) return;
-
-    if (this.stressSystem.isFull()) {
-      this._enterFrenzy(slotIndex);
-    } else {
-      this._enterPrepared(slotIndex);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Normal mode (PREPARED)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Sets a slot to the PREPARED state without a button sequence.
-   * @param {number} slotIndex
-   * @private
-   */
-  _enterPrepared(slotIndex) {
-    this.slotStates[slotIndex] = ABILITY_STATES.PREPARED;
-    this.activeSlotIndex       = slotIndex;
-
-    this.ui.updateSlotState(slotIndex, ABILITY_STATES.PREPARED);
-
-    if (this.swatter && this.swatter.setPreparedVisual) {
-      this.swatter.setPreparedVisual(true, this.abilities[slotIndex].color);
-    }
-
-    if (this.audioManager && this.audioManager.playAbilityActivate) {
-      this.audioManager.playAbilityActivate();
-    }
+  activateFrenzy() {
+    if (this.frenzyActive || !this.stressSystem.isFull()) return false;
+    this._enterFrenzy();
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -180,21 +137,21 @@ export class AbilityManager {
   // ---------------------------------------------------------------------------
 
   /**
-   * Consumes the full stress bar and begins a 5-second frenzy window on the given slot.
-   * @param {number} slotIndex
+   * Consumes the full stress bar and begins a 5-second frenzy window.
    * @private
    */
-  _enterFrenzy(slotIndex) {
+  _enterFrenzy() {
     this.stressSystem.consumeForFrenzy();
 
-    this.activeFrenzySlot        = slotIndex;
+    this.frenzyActive            = true;
+    this.activeFrenzySlot        = 0;
     this.frenzyRemainingMs       = this.frenzyDurationMs;
-    this.slotStates[slotIndex]   = ABILITY_STATES.FRENZY_ACTIVE;
+    this.slotStates              = this.abilities.map(() => ABILITY_STATES.FRENZY_ACTIVE);
 
     this.ui.setStressFull(false);
-    this.ui.updateSlotState(slotIndex, ABILITY_STATES.FRENZY_ACTIVE);
+    this.slotStates.forEach((state, index) => this.ui.updateSlotState(index, state));
     this.ui.updateStressBar(1, true);
-    this.ui.showFrenzyFeedback(slotIndex, this.frenzyDurationMs);
+    this.ui.showFrenzyFeedback(this.frenzyDurationMs);
 
     // Camera zoom in without slowing time or muffling sound
     this.zoomCamera(this.abilityZoom);
@@ -210,14 +167,13 @@ export class AbilityManager {
   }
 
   /**
-   * Ends the frenzy window, restores speed, starts cooldown.
+   * Ends the frenzy window and restores normal ability availability.
    * @private
    */
   _endFrenzy() {
-    const slotIndex = this.activeFrenzySlot;
-
     this.stressSystem.endFrenzy();
     this.activeFrenzySlot  = -1;
+    this.frenzyActive      = false;
     this.frenzyRemainingMs = 0;
 
     // Restore swatter speed
@@ -228,10 +184,15 @@ export class AbilityManager {
     // Camera zoom out
     this.zoomCamera(1.0);
 
-    this.ui.hideFrenzyFeedback(slotIndex);
+    this.ui.hideFrenzyFeedback();
     this.ui.updateStressBar(0, false);
 
-    this._startCooldown(slotIndex);
+    this.slotStates.forEach((state, index) => {
+      if (state === ABILITY_STATES.FRENZY_ACTIVE || state === ABILITY_STATES.EXECUTING_EFFECT) {
+        this.slotStates[index] = ABILITY_STATES.READY;
+        this.ui.updateSlotState(index, ABILITY_STATES.READY);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -242,9 +203,8 @@ export class AbilityManager {
    * Intercepts fly-swatter strike impacts.
    * Called by GameScene when the swatter strikes the surface.
    *
-   * Priority:
-   *   1. If a slot is PREPARED and there's a valid hit → trigger normal effect (×1).
-   *   2. If frenzy is active and there's a valid hit → trigger empowered effect (stays active).
+   * Normal mode evaluates each ability independently. Frenzy bypasses both
+   * automatic activation requirements and cooldowns, but uses normal effects.
    *
    * @param {number} impactX
    * @param {number} impactY
@@ -255,27 +215,49 @@ export class AbilityManager {
   handleSwatImpact(impactX, impactY, hitRadius, hitMosquitoes = []) {
     const isHit = hitMosquitoes && hitMosquitoes.length > 0;
 
-    // --- Normal PREPARED mode ---
-    const preparedSlot = this.slotStates.findIndex(s => s === ABILITY_STATES.PREPARED);
-    if (preparedSlot !== -1) {
-      if (!isHit) return false; // Miss — ability stays prepared
-      this._triggerEffect(preparedSlot, false, impactX, impactY, hitRadius, hitMosquitoes);
-      return true;
+    if (!isHit) return false;
+
+    const now = this.scene.time.now;
+    this.impactCount++;
+    let triggered = false;
+
+    if (this.frenzyActive) {
+      this.abilities.forEach((ability, index) => {
+        this._triggerEffect(index, false, impactX, impactY, hitRadius, hitMosquitoes);
+        triggered = true;
+      });
+      return triggered;
     }
 
-    // --- Frenzy mode ---
-    if (this.activeFrenzySlot !== -1 && isHit) {
-      this._triggerEffect(this.activeFrenzySlot, true, impactX, impactY, hitRadius, hitMosquitoes);
-      return true;
+    const pressureBomb = this.abilities[0];
+    if (
+      this.slotStates[0] === ABILITY_STATES.READY &&
+      this.impactCount % pressureBomb.impactInterval === 0
+    ) {
+      this._triggerEffect(0, false, impactX, impactY, hitRadius, hitMosquitoes);
+      this.ui.updateAbilityProgress(0, 0);
+      this.ui.flashAbilityReady(0);
+      triggered = true;
     }
 
-    return false;
+    const reverseTransfusion = this.abilities[1];
+    if (
+      this.slotStates[1] === ABILITY_STATES.READY &&
+      now >= this.reverseTransfusionReadyAt
+    ) {
+      this.reverseTransfusionReadyAt = now + reverseTransfusion.cooldownMs;
+      this.reverseTransfusionCooldownStartedAt = now;
+      this.ui.updateAbilityProgress(1, 0);
+      this._triggerEffect(1, false, impactX, impactY, hitRadius, hitMosquitoes);
+      triggered = true;
+    }
+
+    return triggered;
   }
 
   /**
-   * Runs the normal or empowered effect for the given slot.
-   * In normal mode, calls ability.executeEffect() then starts cooldown.
-   * In frenzy mode, calls ability.executeEmpoweredEffect() and leaves the slot in FRENZY_ACTIVE.
+   * Runs a normal effect. Frenzy deliberately uses the same normal effect
+   * parameters; only the activation requirements are bypassed.
    *
    * @param {number}  slotIndex
    * @param {boolean} isEmpowered
@@ -296,18 +278,12 @@ export class AbilityManager {
       hitMosquitoes,
       mosquitoManager: this.mosquitoManager,
       audioManager:    this.audioManager,
-      onComplete:      isEmpowered
-        ? () => {} // Frenzy: effect completes but slot stays FRENZY_ACTIVE
-        : () => this._endNormalEffect(slotIndex),
+      onComplete:      () => this._endNormalEffect(slotIndex),
     };
 
-    if (isEmpowered) {
-      ability.executeEmpoweredEffect(context);
-    } else {
-      this.slotStates[slotIndex] = ABILITY_STATES.EXECUTING_EFFECT;
-      this.ui.updateSlotState(slotIndex, ABILITY_STATES.EXECUTING_EFFECT);
-      ability.executeEffect(context);
-    }
+    this.slotStates[slotIndex] = ABILITY_STATES.EXECUTING_EFFECT;
+    this.ui.updateSlotState(slotIndex, ABILITY_STATES.EXECUTING_EFFECT);
+    ability.executeEffect(context);
   }
 
   /**
@@ -320,7 +296,12 @@ export class AbilityManager {
       this.swatter.setPreparedVisual(false);
     }
     this.activeSlotIndex = -1;
-    this._startCooldown(slotIndex);
+    if (!this.frenzyActive) {
+      this._startCooldown(slotIndex);
+    } else {
+      this.slotStates[slotIndex] = ABILITY_STATES.FRENZY_ACTIVE;
+      this.ui.updateSlotState(slotIndex, ABILITY_STATES.FRENZY_ACTIVE);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -333,13 +314,22 @@ export class AbilityManager {
    * @private
    */
   _startCooldown(slotIndex) {
-    const durationMs = this.slotCooldownMs[slotIndex] ?? 5000;
+    const durationMs = slotIndex === 1
+      ? Math.max(0, this.reverseTransfusionReadyAt - this.scene.time.now)
+      : (this.slotCooldownMs[slotIndex] ?? 0);
 
     this.slotStates[slotIndex] = ABILITY_STATES.COOLDOWN;
     this.ui.updateSlotState(slotIndex, ABILITY_STATES.COOLDOWN, { cooldownMs: durationMs });
 
     if (this.slotCooldownTimers[slotIndex]) {
       this.slotCooldownTimers[slotIndex].remove();
+    }
+
+    if (durationMs <= 0) {
+      this.slotStates[slotIndex] = ABILITY_STATES.READY;
+      this.ui.updateSlotState(slotIndex, ABILITY_STATES.READY);
+      this.slotCooldownTimers[slotIndex] = null;
+      return;
     }
 
     this.slotCooldownTimers[slotIndex] = this.scene.time.delayedCall(durationMs, () => {
@@ -543,9 +533,10 @@ export class AbilityManager {
    */
   reset() {
     // Cancel active frenzy
-    if (this.activeFrenzySlot !== -1) {
-      this.ui.hideFrenzyFeedback(this.activeFrenzySlot);
+    if (this.frenzyActive) {
+      this.ui.hideFrenzyFeedback();
       this.activeFrenzySlot  = -1;
+      this.frenzyActive      = false;
       this.frenzyRemainingMs = 0;
       if (this.swatter && this.swatter.setSpeedBoost) {
         this.swatter.setSpeedBoost(1.0);
@@ -557,6 +548,11 @@ export class AbilityManager {
     this.ui.hideSequence();
     this.ui.setStressFull(false);
     this.resetToReady();
+    this.impactCount = 0;
+    this.reverseTransfusionReadyAt = 0;
+    this.reverseTransfusionCooldownStartedAt = 0;
+    this.ui.updateAbilityProgress(0, 0);
+    this.ui.updateAbilityProgress(1, 1);
     this.stressSystem.reset();
     this.ui.updateStressBar(0, false);
     this.scene.cameras.main.setScroll(0, 0);
@@ -585,8 +581,8 @@ export class AbilityManager {
       this.ui.sequenceContainer.setScale(1 / currentZoom);
     }
 
-    // Frenzy timer countdown
-    if (this.activeFrenzySlot !== -1) {
+    // Frenzy timer countdown; ability bars remain tied to availability below.
+    if (this.frenzyActive) {
       this.frenzyRemainingMs -= delta;
 
       const ratio = Phaser.Math.Clamp(this.frenzyRemainingMs / this.frenzyDurationMs, 0, 1);
@@ -594,11 +590,29 @@ export class AbilityManager {
       // Drain stress bar visually in sync with the frenzy timer
       this.stressSystem.stress = ratio * this.stressSystem.maxStress;
       this.ui.updateStressBar(ratio, true);
-      this.ui.updateFrenzyTimer(ratio, this.activeFrenzySlot);
-
       if (this.frenzyRemainingMs <= 0) {
         this._endFrenzy();
       }
+    }
+
+    const pressureBomb = this.abilities[0];
+    const pressureProgress = this.impactCount % pressureBomb.impactInterval / pressureBomb.impactInterval;
+    this.ui.updateAbilityProgress(0, pressureProgress);
+
+    if (this.reverseTransfusionReadyAt > 0) {
+      const cooldownDuration = this.abilities[1].cooldownMs;
+      const reverseProgress = Phaser.Math.Clamp(
+        (this.scene.time.now - this.reverseTransfusionCooldownStartedAt) / cooldownDuration,
+        0,
+        1
+      );
+      this.ui.updateAbilityProgress(1, reverseProgress);
+      if (reverseProgress >= 1 && this.slotStates[1] === ABILITY_STATES.READY) {
+        this.ui.flashAbilityReady(1);
+        this.reverseTransfusionReadyAt = 0;
+      }
+    } else {
+      this.ui.updateAbilityProgress(1, 1);
     }
 
     // Stage 2 sequence countdown (inactive in Stage 1)
@@ -613,8 +627,6 @@ export class AbilityManager {
       }
     }
 
-    // Tick cooldown bar fills
-    this.ui.tickCooldownBars();
   }
 
   destroy() {

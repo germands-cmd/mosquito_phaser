@@ -49,7 +49,6 @@ export class PhaseResultsOverlay {
   show({ phaseId, eliminated, bites, final = false }) {
     this.title.setText(final ? "GAME COMPLETE" : `PHASE ${phaseId} COMPLETE`);
     this.stats.setText(`Mosquitoes eliminated: ${eliminated}\nMosquito bites received: ${bites}`);
-    this.next.container?.setVisible(!final);
     this.next.bg.setVisible(!final);
     this.next.text.setVisible(!final);
     this.next.zone.setVisible(!final);

@@ -43,14 +43,18 @@ export class MosquitoManager {
     this.audioManager = audioManager;
     this.environment = environment;
     this.scene.mosquitoManager = this;
-    this.callbacks = callbacks; // onHit, onBite, onWarningStart, onVisualWarning, onWarningEnd
+    this.callbacks = callbacks;
 
     // Object pool for swarm entities
     this.mosquitoPool = [];
     this.pendingWarningTimers = new Set();
     this.waveTimer = null;
     this.phaseTimer = null;
-    this.hordeTimers = [];
+    this.phaseTimerStartedAt = null;
+    this.phaseTimeRemaining = null;
+    this.phaseTimerPaused = false;
+    this.hordeSchedules = [];
+    this.hordePaused = false;
     this.phaseConfig = null;
     this.phaseExpired = false;
     this.phaseCompleted = false;
@@ -183,6 +187,11 @@ export class MosquitoManager {
     this.phaseConfig = phaseConfig;
     this.phaseExpired = false;
     this.phaseCompleted = false;
+    this.phaseTimerStartedAt = null;
+    this.phaseTimeRemaining = null;
+    this.phaseTimerPaused = false;
+    this.hordeSchedules = [];
+    this.hordePaused = false;
     this.isRunning = true;
 
     const config = phaseConfig || {
@@ -211,32 +220,59 @@ export class MosquitoManager {
       loop: true
     });
     if (Number.isFinite(config.durationMs)) {
-      this.phaseTimer = this.scene.time.delayedCall(config.durationMs, () => {
-        this.expirePhase();
-      });
+      this.phaseTimeRemaining = config.durationMs;
+      this.resumePhaseTimer();
     }
-    this.hordeTimers = config.hordes.map((horde) =>
-      this.scene.time.delayedCall(horde.triggerTimeMs, () => this.startHorde(horde))
+    this.hordeSchedules = config.hordes.map((horde) => {
+      const schedule = {
+        horde,
+        remainingMs: horde.triggerTimeMs,
+        timer: null,
+        startedAt: null,
+        triggered: false,
+        preparationTimer: null,
+        durationTimer: null,
+      };
+      this.scheduleHorde(schedule);
+      return schedule;
+    });
+  }
+
+  scheduleHorde(schedule) {
+    schedule.startedAt = this.scene.time.now;
+    schedule.timer = this.scene.time.delayedCall(
+      schedule.remainingMs,
+      () => {
+        schedule.timer = null;
+        schedule.startedAt = null;
+        schedule.remainingMs = 0;
+        this.startHorde(schedule);
+      }
     );
   }
 
-  startHorde(horde) {
+  startHorde(schedule) {
     if (!this.isRunning || this.phaseExpired) return;
+    schedule.triggered = true;
+    this.pausePhaseTimer();
+    this.pauseHordeTimers();
     this.stopNormalSpawning();
-    const preparation = this.scene.time.delayedCall(
-      horde.preparationDurationMs,
+    schedule.preparationTimer = this.scene.time.delayedCall(
+      schedule.horde.preparationDurationMs,
       () => {
+        schedule.preparationTimer = null;
         if (!this.isRunning || this.phaseExpired) return;
         this.waveTimer = this.scene.time.addEvent({
-          delay: horde.intervalMs,
+          delay: schedule.horde.intervalMs,
           callback: () => {
             if (this.isRunning && !this.phaseExpired) {
-              this.spawnWave(horde.mosquitoesPerWave);
+              this.spawnWave(schedule.horde.mosquitoesPerWave);
             }
           },
           loop: true
         });
-        this.scene.time.delayedCall(horde.durationMs, () => {
+        schedule.durationTimer = this.scene.time.delayedCall(schedule.horde.durationMs, () => {
+          schedule.durationTimer = null;
           if (this.waveTimer) {
             this.waveTimer.remove();
             this.waveTimer = null;
@@ -249,11 +285,36 @@ export class MosquitoManager {
               },
               loop: true
             });
+            this.resumeHordeTimers();
+            this.resumePhaseTimer();
           }
         });
       }
     );
-    this.hordeTimers.push(preparation);
+  }
+
+  pauseHordeTimers() {
+    if (this.hordePaused) return;
+    this.hordePaused = true;
+    for (const schedule of this.hordeSchedules) {
+      if (schedule.triggered || !schedule.timer) continue;
+      schedule.remainingMs = Math.max(
+        0,
+        schedule.remainingMs - (this.scene.time.now - schedule.startedAt)
+      );
+      schedule.timer.remove();
+      schedule.timer = null;
+      schedule.startedAt = null;
+    }
+  }
+
+  resumeHordeTimers() {
+    if (!this.hordePaused) return;
+    this.hordePaused = false;
+    for (const schedule of this.hordeSchedules) {
+      if (schedule.triggered || schedule.timer) continue;
+      this.scheduleHorde(schedule);
+    }
   }
 
   stopNormalSpawning() {
@@ -277,8 +338,52 @@ export class MosquitoManager {
       this.phaseTimer.remove();
       this.phaseTimer = null;
     }
-    for (const timer of this.hordeTimers) timer.remove();
-    this.hordeTimers = [];
+    this.phaseTimerStartedAt = null;
+    this.phaseTimerPaused = false;
+    for (const schedule of this.hordeSchedules) {
+      schedule.timer?.remove();
+      schedule.preparationTimer?.remove();
+      schedule.durationTimer?.remove();
+    }
+    this.hordeSchedules = [];
+    this.hordePaused = false;
+  }
+
+  pausePhaseTimer() {
+    if (!this.phaseTimer || this.phaseTimerPaused) return;
+    this.phaseTimeRemaining = Math.max(
+      0,
+      this.phaseTimeRemaining - (this.scene.time.now - this.phaseTimerStartedAt)
+    );
+    this.phaseTimer.remove();
+    this.phaseTimer = null;
+    this.phaseTimerStartedAt = null;
+    this.phaseTimerPaused = true;
+  }
+
+  resumePhaseTimer() {
+    if (
+      !Number.isFinite(this.phaseTimeRemaining) ||
+      this.phaseExpired ||
+      !this.isRunning
+    ) {
+      return;
+    }
+    if (this.phaseTimeRemaining <= 0) {
+      this.expirePhase();
+      return;
+    }
+    this.phaseTimerPaused = false;
+    this.phaseTimerStartedAt = this.scene.time.now;
+    this.phaseTimer = this.scene.time.delayedCall(
+      this.phaseTimeRemaining,
+      () => {
+        this.phaseTimer = null;
+        this.phaseTimerStartedAt = null;
+        this.phaseTimeRemaining = 0;
+        this.expirePhase();
+      }
+    );
   }
 
   checkPhaseCompletion() {
@@ -378,10 +483,6 @@ export class MosquitoManager {
     mosquito.x = spawnPos.x;
     mosquito.y = spawnPos.y;
 
-    if (this.callbacks.onWarningStart) {
-      this.callbacks.onWarningStart(dirData, warningDurationSec);
-    }
-
     // Audio vs No-Audio logic:
     if (this.mode === GAME_MODES.AUDIO) {
       // Individual spatial buzz voice with radically reduced volume
@@ -411,20 +512,6 @@ export class MosquitoManager {
       },
     );
     this.pendingWarningTimers.add(warningTimer);
-  }
-
-  /**
-   * Triggers a manual single mosquito attack for debug key tests (1-5).
-   * @param {string} directionKey
-   */
-  triggerAttack(directionKey) {
-    if (!this.isRunning) return;
-    this.spawnSingleMosquito(directionKey);
-  }
-
-  spawnTestEnemy(type, directionKey = "TOP") {
-    this.isRunning = true;
-    this.spawnSingleMosquito(directionKey, type);
   }
 
   /**
@@ -487,7 +574,7 @@ export class MosquitoManager {
     });
   }
 
-  getVariantCallbacks(mosquito) {
+  getVariantCallbacks(mosquito, options = {}) {
     return {
       duration: Phaser.Math.Between(400, 900),
       onReach: (m = mosquito) => this.callbacks.onBite?.(m.x, m.y, m),
@@ -503,7 +590,15 @@ export class MosquitoManager {
           this.callbacks.onFeedingDamage(m, tickCount, m.attackDamagePerSecond);
         }
       },
-      onDeath: (m, source) => this.handleEnemyDeath(m, source)
+      onDeath: (m, source) => {
+        this.handleEnemyDeath(m, source);
+        options.onDeath?.(m, source);
+        if (this.menuMode) this.menuOnDeath?.(m, source);
+      },
+      menuTarget: options.menuTarget ||
+        (this.menuMode ? this.menuTargetFactory?.() : undefined),
+      onTargetReached: options.onTargetReached ||
+        (this.menuMode ? this.menuOnTargetReached : undefined)
     };
   }
 

@@ -10,7 +10,9 @@ export class CowardMosquito extends VariantMosquito {
   }
 
   startAttack({ spawnPos, targetPos, manager, callbacks }) {
-    const leg = manager.environment.getNearestLeg(spawnPos);
+    const leg = callbacks.menuTarget
+      ? callbacks.menuTarget
+      : manager.environment.getNearestLeg(spawnPos);
     this.initAttack(spawnPos, targetPos, leg, callbacks);
   }
 
@@ -30,6 +32,10 @@ export class CowardMosquito extends VariantMosquito {
       this.approachPath.push({ x: this.x, y: this.y });
       const distance = moveTowards(this, this.attackTarget, this.config.movementSpeed * delta / 1000);
       if (distance < 18) {
+        if (this.callbacks.onTargetReached) {
+          this.callbacks.onTargetReached(this);
+          return;
+        }
         this.beginFeeding(this.attackTarget, this.callbacks.onDamage);
         this.callbacks.onBite?.(this);
       }

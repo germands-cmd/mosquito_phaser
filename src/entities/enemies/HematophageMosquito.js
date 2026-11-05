@@ -1,5 +1,5 @@
 import { MOSQUITO_TYPES } from '../Mosquito.js';
-import { VariantMosquito, VARIANT_STATES, moveTowards } from './VariantMosquito.js';
+import { VariantMosquito, VARIANT_STATES, moveTowards, reachTarget } from './VariantMosquito.js';
 
 export class HematophageMosquito extends VariantMosquito {
   constructor(scene) {
@@ -20,6 +20,9 @@ export class HematophageMosquito extends VariantMosquito {
   update(delta) {
     if (this.state !== VARIANT_STATES.NORMAL) return;
     if (moveTowards(this, this.attackTarget, this.config.movementSpeed * delta / 1000) < 18) {
+      if (reachTarget(this, this.callbacks)) {
+        return;
+      }
       this.beginFeeding(this.attackTarget, this.callbacks.onDamage);
       this.callbacks.onBite?.(this);
     }

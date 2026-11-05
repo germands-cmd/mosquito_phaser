@@ -23,6 +23,14 @@ export function moveTowards(entity, target, distance) {
   return Phaser.Math.Distance.Between(entity.x, entity.y, target.x, target.y);
 }
 
+export function reachTarget(entity, callbacks) {
+  if (callbacks?.onTargetReached) {
+    callbacks.onTargetReached(entity);
+    return true;
+  }
+  return false;
+}
+
 export function spawnBabies(manager, source, launchAngle, config) {
   const count = Phaser.Math.Between(config.minBabiesSpawned, config.maxBabiesSpawned);
   for (let i = 0; i < count; i++) {
@@ -78,6 +86,7 @@ export class VariantMosquito extends Mosquito {
     this.reappearanceTimer?.remove();
     this.activationTimer = null;
     this.reappearanceTimer = null;
+    this.menuTarget = null;
     super.deactivate();
   }
 }

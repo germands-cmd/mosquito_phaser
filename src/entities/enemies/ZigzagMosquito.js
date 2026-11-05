@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MOSQUITO_TYPES } from '../Mosquito.js';
-import { VariantMosquito, VARIANT_STATES } from './VariantMosquito.js';
+import { VariantMosquito, VARIANT_STATES, reachTarget } from './VariantMosquito.js';
 
 export class ZigzagMosquito extends VariantMosquito {
   constructor(scene) {
@@ -35,7 +35,9 @@ export class ZigzagMosquito extends VariantMosquito {
   }
 
   startAttack({ spawnPos, manager, callbacks }) {
-    const leg = manager.environment.getNearestLeg(spawnPos);
+    const leg = callbacks.menuTarget
+      ? callbacks.menuTarget
+      : manager.environment.getNearestLeg(spawnPos);
     this.initAttack(spawnPos, leg, callbacks);
   }
 
@@ -54,19 +56,29 @@ export class ZigzagMosquito extends VariantMosquito {
     if (this.state === VARIANT_STATES.ZIGZAG_MOVING) {
       const environment = this.scene.mosquitoManager.environment;
       this.targetLeg = environment.getNearestLeg(this);
-      const target = environment.getLegCenter(this.targetLeg);
+      const target = this.callbacks.menuTarget ||
+        environment.getLegCenter(this.targetLeg);
       const angle = Phaser.Math.Angle.Between(this.x, this.y, target.x, target.y);
       const forward = { x: Math.cos(angle), y: Math.sin(angle) };
       const lateral = { x: -forward.y * this.lateralSign, y: forward.x * this.lateralSign };
       const velocity = {
-        x: (forward.x * this.config.forwardProgressFactor + lateral.x * 0.45) * this.config.fastMovementSpeed,
-        y: (forward.y * this.config.forwardProgressFactor + lateral.y * 0.45) * this.config.fastMovementSpeed
+        x: (forward.x * this.config.forwardProgressFactor + lateral.x * 0.45) *
+          (this.menuSpeedMultiplier
+            ? this.config.fastMovementSpeed * this.menuSpeedMultiplier
+            : this.config.fastMovementSpeed),
+        y: (forward.y * this.config.forwardProgressFactor + lateral.y * 0.45) *
+          (this.menuSpeedMultiplier
+            ? this.config.fastMovementSpeed * this.menuSpeedMultiplier
+            : this.config.fastMovementSpeed)
       };
       this.x += velocity.x * delta / 1000;
       this.y += velocity.y * delta / 1000;
       this.container.setPosition(this.x, this.y).setRotation(Math.atan2(velocity.y, velocity.x));
       this.segmentRemaining -= delta / 1000;
       if (Phaser.Math.Distance.Between(this.x, this.y, target.x, target.y) < 18) {
+        if (reachTarget(this, this.callbacks)) {
+          return;
+        }
         this.beginFeeding(target, this.callbacks.onDamage);
         this.callbacks.onBite?.(this);
       } else if (this.segmentRemaining <= 0) {

@@ -13,7 +13,7 @@ export class PressureBombAbility extends BaseAbility {
     super({
       id: 'PRESSURE_BOMB',
       name: 'Pressure Bomb',
-      slotKey: '1',
+      slotKey: '',
       iconSymbol: '💥',
       sequenceLength: config.sequenceLength || 4,
       color: '#ff5522'
@@ -22,21 +22,7 @@ export class PressureBombAbility extends BaseAbility {
     // Configurable gameplay parameters
     this.blastRadius = config.blastRadius || 240;
     this.expansionDurationMs = config.expansionDurationMs || 360;
-  }
-
-  /**
-   * Returns empowered parameter overrides for frenzy mode.
-   * - blastRadius ×1.5 (larger area)
-   * - expansionDurationMs ×0.75 (snappier animation during the multi-hit frenzy)
-   *
-   * @param {number} [factor=1.5]
-   * @returns {Object}
-   */
-  getEmpoweredConfig(factor = 1.5) {
-    return {
-      blastRadius:         Math.round(this.blastRadius * factor),
-      expansionDurationMs: Math.round(this.expansionDurationMs * 0.75),
-    };
+    this.impactInterval = config.impactInterval || 3;
   }
 
   /**
@@ -89,8 +75,8 @@ export class PressureBombAbility extends BaseAbility {
     for (const m of victims) {
       const vx = m.x;
       const vy = m.y;
-      m.kill();
-      if (mosquitoManager.callbacks && mosquitoManager.callbacks.onHit) {
+      const damaged = m.takeDamage(1, 'pressure-bomb');
+      if (damaged && mosquitoManager.callbacks && mosquitoManager.callbacks.onHit) {
         mosquitoManager.callbacks.onHit(vx, vy);
       }
     }

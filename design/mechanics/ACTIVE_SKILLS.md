@@ -4,7 +4,7 @@
 
 Design and prototype an active ability system for the existing mosquito game.
 
-The purpose of this prototype is to evaluate whether directional key sequences, combined with temporary slow motion and powerful fly-swatter impacts, create an engaging gameplay mechanic.
+The purpose of this system is to provide automatic active-ability effects driven by fly-swatter impacts and cooldowns, while reserving manual activation for the stress/frenzy mode.
 
 This prototype must focus exclusively on active abilities. Blood, resource costs, passive upgrades, roguelike progression, and other upgrade systems are outside the scope of this implementation.
 
@@ -12,88 +12,45 @@ This prototype must focus exclusively on active abilities. Blood, resource costs
 
 The active ability system follows this sequence:
 
-1. The player activates an equipped ability.
-2. The game temporarily enters a slow-motion state.
-3. A directional key sequence appears on screen.
-4. The player must reproduce the sequence before the timer expires.
-5. If the sequence is completed successfully, the ability becomes prepared.
-6. The next fly-swatter impact triggers the ability's special effect.
-7. After the effect resolves, the ability returns to its inactive state.
+1. The player attacks with the fly-swatter.
+2. The system registers a valid impact and updates the normal hit/stress systems.
+3. Each ability independently checks its activation rule.
+4. When an ability is due, the current impact triggers its special effect.
+5. After the effect resolves, the ability waits for its next impact threshold or cooldown.
 
-If the player enters an incorrect direction or the timer expires, the sequence fails and the ability has no effect. The player can continue playing normally and activate an ability again.
-
-The ability must not trigger its effect immediately upon completing the sequence. Success prepares the effect for the next fly-swatter impact, making the player's next attack the payoff for completing the sequence.
+Pressure Bomb activates on every third valid impact; the third impact is the one that triggers it. Reverse Transfusion becomes eligible for the next valid impact once its two-second cooldown has elapsed. These rules are automatic and do not require pressing an ability key.
 
 ## 3. Ability Activation and Input
 
-### Activation
+### Automatic activation
 
-The player has two active ability slots, assigned to keyboard keys `1` and `2`.
+The two active abilities use independent automatic activation rules:
 
-Pressing the corresponding key begins the input sequence for that ability.
+- **Pressure Bomb:** activates on every third valid fly-swatter impact. The impact counter is consumed by the triggering impact and continues counting toward the next activation.
+- **Reverse Transfusion:** uses a two-second cooldown. Once the cooldown has elapsed, the next valid fly-swatter impact activates it. The cooldown is measured in real time and starts after the ability effect resolves.
 
-For the initial prototype, the player should only be able to prepare one ability at a time. Activating another ability while a sequence is active or an ability is already prepared should not be possible.
+Keys `1` and `2` are not used to activate abilities in normal mode.
 
-### Directional Sequence
+### Stress and frenzy activation
 
-The sequence consists of directional inputs using the arrow keys:
+Pressing `SPACE` while the stress gauge is full consumes the charge and enters frenzy mode. During frenzy, every valid impact activates **all** abilities simultaneously, ignoring both the Pressure Bomb impact requirement and the Reverse Transfusion cooldown. Frenzy does not empower ability statistics such as area, jump count, or jump distance; it only removes the normal activation restrictions.
 
-- Up
-- Down
-- Left
-- Right
+### Directional Sequence (reserved)
 
-The player must enter the directions in the displayed order.
+The directional sequence system is not part of normal active-ability activation. Its internal states and UI may remain available for the future finishing-move mechanic, but pressing an ability key must not start a sequence during ordinary gameplay.
 
-For the initial prototype, use a configurable sequence length, starting with four directional inputs. The sequence should be randomly generated for each activation.
-
-The sequence must be clearly visible and easy to read. The current input should be visually distinguished from the remaining and already completed inputs, allowing the player to understand their progress immediately.
-
-### Time Limit
-
-The player has three seconds to complete the sequence.
-
-The timer begins when the sequence appears and ends when the player either completes the sequence, enters an incorrect direction, or runs out of time.
-
-Both the sequence length and the time limit should be configurable for future balancing.
-
-### Slow Motion
-
-When the sequence begins, the game should enter slow motion, reducing gameplay speed to approximately 5% of normal speed.
-
-This slowdown should affect gameplay elements such as mosquito movement and other world simulation that normally advances over time.
-
-The input timer must use real time rather than the slowed gameplay time. Otherwise, the effective duration of the sequence would increase substantially.
-
-When the sequence ends, gameplay returns to normal speed, regardless of whether the player succeeds or fails.
-
-The implementation should preserve the game's existing update behavior and avoid accumulating time-related errors when entering or leaving slow motion.
-
-### Zoom
-
-In order to create more feedback, when the sequence begins, a zoom in begins as well, going from normal zoom to 95-90% approx.
-
-When the sequence ends, gameplays returns to normal zoom, regardless of whether the player succeeds or fails.
-
-This zoom should zoom in and zoom out with a ease transition.
+The sequence timer, slow motion, and zoom are reserved for the future finishing-move mechanic and must not run when automatic abilities trigger.
 
 ## 4. Ability States
 
 The active ability system should use clearly defined states:
 
-- **Ready:** The ability can be activated.
-- **Entering Sequence:** The player is entering the directional sequence.
-- **Prepared:** The sequence has been completed successfully, and the next fly-swatter impact will trigger the effect.
+- **Ready:** The ability is available to satisfy its automatic activation rule.
+- **Cooldown:** The ability is waiting before it can respond to another valid impact.
 - **Executing Effect:** The special effect is being applied.
-- **Failed:** The sequence was incorrect or the timer expired.
+- **Frenzy Active:** Frenzy is active and the ability responds to every valid impact.
 
-After a failure, the ability returns to the Ready state.
-
-After a successful impact and effect resolution, the ability also returns to the Ready state.
-
-At Entering Sequence state, player MUST BE invulnerable, in order to prevent being bitten by mosquitoes.
-
-The system must prevent abilities from being activated repeatedly while they are already being executed or prepared.
+An ability must not trigger twice for the same impact. During frenzy, the manager may dispatch the same valid impact to every ability that can execute it.
 
 ## 5. Visual Design and Feedback
 
@@ -101,7 +58,7 @@ The active ability system should communicate its state through clear visual feed
 
 ### Sequence Interface
 
-When an ability is activated:
+When the future finishing-move sequence is activated:
 
 - Display the directional sequence in a clearly visible interface element. Reveal each arrow symbol progressively, with a short delay between consecutive symbols. The total reveal duration should match the slow-motion transition duration, distributing the delay evenly across all symbols. For example, if the slow-motion transition lasts 100 ms and the sequence contains five arrows, reveal one arrow every 20 ms. This synchronization should make the sequence appear progressively as the game transitions into slow motion.
 - Use recognizable arrow symbols rather than text labels.
@@ -114,41 +71,26 @@ The interface should remain readable during slow motion and should not cover imp
 
 ### Slow-Motion Feedback
 
-The transition into slow motion should feel intentional rather than like a performance issue.
+The transition into slow motion should feel intentional rather than like a performance issue when the future finishing-move sequence is used. Automatic ability effects must not start this interface or slow gameplay.
 
 A subtle visual transition or brief screen effect can communicate that the player has entered the ability input phase.
 
 When the sequence ends, the game should return smoothly to normal speed.
 
-### Successful Sequence
-
-When the player completes the sequence, provide a clear confirmation that the ability is prepared.
-
-This may include a brief visual highlight around the ability indicator, a distinctive animation, or a change in the fly-swatter's appearance.
-
-The player must be able to distinguish between successfully preparing an ability and merely finishing the input sequence.
-
-### Failed Sequence
-
-Failure should be communicated immediately through a short visual response, such as a red flash or a brief failure indicator.
-
-The feedback should be clear without excessively interrupting the action.
-
-### Prepared Ability
-
-While an ability is prepared, its interface indicator should remain visibly active until the next fly-swatter impact triggers it.
-
-The visual state must not disappear before the effect is used, and the ability must not trigger on an unrelated event.
-
 ### Ability HUD
 
-The player's equipped active abilities should be displayed in the HUD through a dedicated UI element for each ability, just above the Swats and Bites UI section.
+The player's equipped active abilities should be displayed as two square outer containers with the ability icon inside a smaller square inner container.
 
-Each element should display the corresponding ability icon, allowing the player to identify which abilities are equipped and assigned to each activation key (1 and 2).
+The outer container remains visible so its border color can communicate the ability state. The HUD must not display the activation key, ability name, or a text label such as `READY`; only the icon is shown inside the inner square.
 
-Since custom icons are not yet available, use a simple placeholder symbol for each ability.
+The stress bar is positioned behind the health bar, slightly larger and higher, so it forms a visible stress-colored border around the health bar. The ability containers are positioned above the health/stress bars with a small coherent margin between both groups.
 
-The UI should also communicate the current state of each ability, particularly when it is being activated, successfully prepared, or ready to use again.
+The stress bar fills and changes appearance when full. Pressing `SPACE` starts frenzy, and the UI should clearly distinguish the active frenzy state from a merely full stress gauge.
+
+The progress bar inside each ability container represents automatic availability:
+Pressure Bomb fills according to its three-impact cycle, while Reverse Transfusion
+fills during its two-second cooldown. The bar is white and flashes the outer border
+when the ability becomes available. It is not a frenzy-duration indicator.
 
 ## 6. Ability Effects
 
@@ -156,14 +98,12 @@ The prototype should support multiple effects through a shared active ability sy
 
 ### Ability A: Pressure Bomb
 
-**Concept:** The next successful fly-swatter impact produces an expanding shockwave around the impact location.
+**Concept:** Every third valid fly-swatter impact produces an expanding shockwave around the impact location.
 
 **Gameplay behaviour:**
 
-- The player completes the directional sequence.
-- The ability becomes prepared.
-- The player hits with the fly-swatter.
-- The impact triggers an expanding shockwave.
+- The valid-impact counter reaches three.
+- The third impact triggers an expanding shockwave.
 - Mosquitoes within the shockwave radius receive damage or are eliminated according to the existing damage rules.
 - The effect ends after the shockwave finishes expanding.
 
@@ -177,12 +117,11 @@ The effect should emphasize the feeling of a powerful, exaggerated cartoon impac
 
 ### Ability B: Reverse Transfusion
 
-**Concept:** The next fly-swatter impact triggers a chain of blood-like energy beams that jump between nearby mosquitoes.
+**Concept:** After a two-second cooldown, the next valid fly-swatter impact triggers a chain of blood-like energy beams that jump between nearby mosquitoes.
 
 **Gameplay behaviour:**
 
-- The player completes the directional sequence.
-- The ability becomes prepared.
+- The ability's cooldown has elapsed.
 - The player hits a mosquito with the fly-swatter.
 - The initial target becomes the first point in a chain.
 - The effect propagates to nearby mosquitoes, applying damage according to the existing damage rules.
@@ -208,11 +147,14 @@ These two abilities are examples for validating the system architecture. The inp
 
 The active ability system must integrate with the existing fly-swatter attack.
 
-A prepared ability should activate only when the player successfully hits a valid target with the fly-swatter.
+Automatic abilities should activate only from a valid fly-swatter impact, unless frenzy is active. In frenzy, the same valid impact is dispatched to every ability regardless of its normal requirement or cooldown.
 
 The system must distinguish between a valid impact and an attack that hits nothing.
 
-For the initial prototype, if the player misses, the ability remains prepared until a valid hit occurs. This behaviour should be configurable if testing indicates that consuming the ability on a miss would be preferable.
+Missed swats do not advance the Pressure Bomb counter, do not start or reset the Reverse Transfusion cooldown, and do not trigger abilities.
+
+Each ability effect applies exactly one point of damage per affected mosquito through
+the normal damage system. Effects must not kill a mosquito directly.
 
 The special effect should receive the impact position and any other relevant information from the fly-swatter attack.
 
@@ -249,19 +191,16 @@ All relevant values, including sequence length, input duration, slow-motion scal
 
 The implementation should be considered functional when the following conditions are met:
 
-1. The player can activate an ability using its assigned keyboard key.
-2. A directional sequence appears and can be completed using the arrow keys.
-3. The sequence is successfully validated when all directions are entered correctly and in order.
-4. Incorrect input and time expiration both cause failure.
-5. Slow motion and zoom begins when the sequence starts and ends when the sequence resolves.
-6. The input timer continues to operate correctly during slow motion.
-7. Successful completion prepares the ability without immediately triggering its effect.
-8. The next valid fly-swatter impact triggers the prepared effect.
-9. The Pressure Bomb affects mosquitoes within its configured radius.
-10. Reverse Transfusion propagates between valid targets without repeatedly selecting the same mosquito.
-11. Ability state indicators correctly communicate activation, success, failure, preparation, and execution.
-12. After the effect resolves, the player can activate the ability again.
-13. The system does not become stuck in slow motion or remain in an invalid ability state after success, failure, or interrupted gameplay.
+1. Pressure Bomb triggers on the third valid impact and every third valid impact thereafter.
+2. Reverse Transfusion triggers on the next valid impact after its two-second cooldown.
+3. Missed swats do not advance or trigger either ability.
+4. Pressing `SPACE` while stress is full enters frenzy and consumes the stress charge.
+5. Every valid impact during frenzy triggers both abilities, ignoring impact requirements and cooldowns.
+6. Frenzy does not change ability statistics such as radius, jump count, or jump distance.
+7. The ability HUD shows only square icon containers, without key labels, names, or readiness text.
+8. The stress bar is rendered behind and slightly above/wider than the health bar.
+9. The ability containers are positioned below the health/stress bars with a coherent gap.
+10. The system does not become stuck in frenzy or remain in an invalid ability state after the frenzy duration ends.
 
 ## 10. Scope and Implementation Planning
 

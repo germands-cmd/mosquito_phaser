@@ -1,12 +1,45 @@
-# Implementation Planning: Stress and Frenzy System
+# Implementation Planning: Automatic Abilities, Stress and Frenzy System
 
 ## Objective
 
-Adapt the existing ability system to support the new stress and frenzy mechanics while preserving and adapting the current internal ability states and architecture wherever practical.
+Adapt the existing ability system to support automatic ability activation, the new stress/frenzy input, and the revised HUD while preserving and adapting the current internal ability states and architecture wherever practical.
 
 At this stage, inspect the project and analyze how the changes should be implemented. Do not modify any code or project files.
 
 The existing button-sequence system must be preserved for reuse in a second stage, when the finishing move is implemented. Do not implement the finishing move now.
+
+## Current Revision
+
+The following rules supersede the earlier key-activation behavior described below.
+
+### Automatic ability rules
+
+- Ability keys `1` and `2` are removed from normal ability activation.
+- **Pressure Bomb** triggers automatically on every third valid fly-swatter impact. The third impact is consumed by the trigger.
+- **Reverse Transfusion** has a two-second cooldown. After the cooldown elapses, the next valid fly-swatter impact triggers it.
+- Missed swats do not advance the Pressure Bomb counter, trigger an effect, or affect the Reverse Transfusion cooldown.
+- Each ability keeps its own activation tracking. An effect must not trigger more than once for the same impact.
+
+### Stress and frenzy activation
+
+- The player presses `SPACE` to enter frenzy when stress is full.
+- Entering frenzy consumes the full stress charge and starts the existing frenzy duration.
+- Every valid impact during frenzy triggers **both** abilities, regardless of the Pressure Bomb impact counter or Reverse Transfusion cooldown.
+- Frenzy does not empower ability parameters. Area, number of jumps, jump distance, animation timing, and other effect statistics remain at their normal values.
+- Stress is not gained from hits or bites while frenzy is active. When frenzy ends, stress remains at zero.
+
+### Revised HUD
+
+- Each ability is represented by an outer square state container and an inner square icon container.
+- The HUD displays only the ability icon. It does not display the activation key, ability name, or `READY`/status text.
+- The outer border remains visible and changes according to the ability state and stress/frenzy feedback.
+- The stress bar moves behind the health bar, slightly higher and wider, acting as a visible border around it.
+- The ability containers sit above the health/stress bars with a small coherent margin between both groups.
+- The white progress bar inside each icon tracks automatic availability: Pressure Bomb advances by valid impacts, and Reverse Transfusion fills during its two-second cooldown. A white border flash marks completion.
+
+The sections below describe the previous planning baseline and reusable architecture. Any conflict with the current revision is resolved in favor of the rules above.
+
+## Historical baseline (superseded)
 
 ### 1. General Ability Behavior
 
@@ -162,6 +195,8 @@ Inspect how abilities and gameplay parameters are currently configured. If it fi
 - Ability parameter empowerment (+50%).
 - Attack speed increase (initial proposal: +25%).
 - Individual ability cooldowns.
+
+Ability effects always apply `1` damage through the mosquito damage system; they do not call a direct kill operation.
 
 Do not introduce a new configuration layer or redesign the architecture just to make these values configurable. Evaluate the patterns already used by the project first.
 

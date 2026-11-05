@@ -13,7 +13,7 @@ export class ReverseTransfusionAbility extends BaseAbility {
     super({
       id: "REVERSE_TRANSFUSION",
       name: "Reverse Transfusion",
-      slotKey: "2",
+      slotKey: "",
       iconSymbol: "⚡",
       sequenceLength: config.sequenceLength || 4,
       color: "#e6194b",
@@ -23,24 +23,7 @@ export class ReverseTransfusionAbility extends BaseAbility {
     this.maxJumps = config.maxJumps || 5;
     this.maxJumpDistance = config.maxJumpDistance || 800;
     this.jumpStepDelayMs = config.jumpStepDelayMs || 90;
-  }
-
-  /**
-   * Returns empowered parameter overrides for frenzy mode.
-   * - maxJumps ×1.5 rounded (chain reaches more targets)
-   * - maxJumpDistance ×1.5 (chain bridges larger gaps)
-   *
-   * jumpStepDelayMs is intentionally NOT empowered — it controls animation
-   * pacing and shortening it would make individual zaps invisible.
-   *
-   * @param {number} [factor=1.5]
-   * @returns {Object}
-   */
-  getEmpoweredConfig(factor = 1.5) {
-    return {
-      maxJumps:        Math.round(this.maxJumps * factor),
-      maxJumpDistance: Math.round(this.maxJumpDistance * factor),
-    };
+    this.cooldownMs = config.cooldownMs || 2000;
   }
 
   /**
@@ -118,8 +101,8 @@ export class ReverseTransfusionAbility extends BaseAbility {
       scene.cameras.main.shake(90, 0.008);
 
       // Kill mosquito and trigger callbacks
-      targetMosquito.kill();
-      if (mosquitoManager.callbacks && mosquitoManager.callbacks.onHit) {
+      const damaged = targetMosquito.takeDamage(1, 'reverse-transfusion');
+      if (damaged && mosquitoManager.callbacks && mosquitoManager.callbacks.onHit) {
         mosquitoManager.callbacks.onHit(toPos.x, toPos.y);
       }
 
@@ -182,11 +165,11 @@ export class ReverseTransfusionAbility extends BaseAbility {
     const steps = Math.max(3, Math.floor(dist / 35));
 
     // Outer crimson glow
-    graphics.lineStyle(5, 0xa10241, 0.7);
+    graphics.lineStyle(5, 0xd3b11f, 0.7);
     this.strokeJaggedLine(graphics, from, to, steps, 14);
 
     // Bright core white/yellow lightning line
-    graphics.lineStyle(2, 0xe6194b, 0.95);
+    graphics.lineStyle(2, 0x7ae8e1, 0.95);
     this.strokeJaggedLine(graphics, from, to, steps, 8);
   }
 

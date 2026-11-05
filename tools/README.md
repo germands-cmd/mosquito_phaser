@@ -40,3 +40,24 @@ Puedes simplemente hacer doble clic en `tools/index.html` o abrirlo en cualquier
 | **Zoom y Vista** | Botones de Zoom en pantalla o rueda del ratón |
 | **Probar Muestreo** | Botón **"🎯 Probar Muestreo"**: genera 80 puntos aleatorios para verificar que los mosquitos aterrizan exactamente en la piel |
 | **Guardar** | Botón **"💾 Guardar en Proyecto"** (actualiza `Environment.js`) |
+
+---
+
+# 🧰 Debug del juego
+
+La entrada independiente [debug/index.html](./debug/index.html) carga las
+herramientas de desarrollo sin incluirlas en el código normal del juego.
+
+```bash
+npx vite --host
+```
+
+Después abre `http://localhost:5173/tools/debug/`.
+
+Controles disponibles:
+
+- `D`: HUD y visualización de colliders.
+- `T`: pausar/reanudar el spawn automático.
+- `Numpad 1-7`: generar variantes.
+- `V`, `C`, `O`, `B`: generar formaciones.
+- `F1-F5`: iniciar una fase concreta.

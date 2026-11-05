@@ -7,12 +7,12 @@ export class BaseAbility {
    * @param {Object} config
    * @param {string} config.id - Unique ability identifier
    * @param {string} config.name - Display name
-   * @param {string} config.slotKey - Slot activation key ('1' or '2')
+   * @param {string} [config.slotKey] - Legacy slot key, reserved for the finishing move
    * @param {string} config.iconSymbol - Icon symbol or emoji for HUD display
    * @param {number} [config.sequenceLength=4] - Number of directional arrow inputs
    * @param {string} [config.color='#ff9900'] - Theme color for HUD and effects
    */
-  constructor({ id, name, slotKey, iconSymbol, sequenceLength = 4, color = '#ff9900' }) {
+  constructor({ id, name, slotKey = '', iconSymbol, sequenceLength = 4, color = '#ff9900' }) {
     this.id = id;
     this.name = name;
     this.slotKey = slotKey;
@@ -40,20 +40,19 @@ export class BaseAbility {
   }
 
   /**
-   * Returns an object with empowered parameter overrides for frenzy mode (+50% by default).
-   * Subclasses override this to declare which numeric parameters should be amplified
-   * and by how much. Parameters that do not benefit from amplification must be omitted.
+   * Legacy hook reserved for the future finishing-move system.
+   * Automatic frenzy uses the normal effect configuration.
    *
    * @param {number} [factor=1.5]
-   * @returns {Object} Partial config with empowered values
+   * @returns {Object} Partial config with optional future overrides
    */
   getEmpoweredConfig(factor = 1.5) {  // eslint-disable-line no-unused-vars
     return {};
   }
 
   /**
-   * Executes the empowered (frenzy) variant of this ability's effect.
-   * Passes the empowered config overrides to executeEffect().
+   * Executes the legacy empowered variant. Current frenzy does not call this
+   * method because frenzy only bypasses activation requirements.
    *
    * @param {Object} context - Same context object as executeEffect()
    */

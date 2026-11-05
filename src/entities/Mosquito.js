@@ -237,6 +237,11 @@ export class Mosquito {
   startAttack({ spawnPos, targetPos, diveDurationMs, manager, callbacks }) {
     this.onDeath = callbacks?.onDeath || null;
     this.startDive(spawnPos, targetPos, diveDurationMs, (biteX, biteY) => {
+      if (callbacks?.onTargetReached) {
+        callbacks.onTargetReached(this);
+        return;
+      }
+
       if (manager.callbacks && manager.callbacks.onBite) {
         manager.callbacks.onBite(biteX, biteY, this);
       }

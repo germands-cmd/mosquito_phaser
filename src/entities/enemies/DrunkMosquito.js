@@ -3,7 +3,8 @@ import { MOSQUITO_TYPES } from '../Mosquito.js';
 import {
   VariantMosquito,
   VARIANT_STATES,
-  spawnBabies
+  spawnBabies,
+  reachTarget
 } from './VariantMosquito.js';
 
 export class DrunkMosquito extends VariantMosquito {
@@ -53,6 +54,9 @@ export class DrunkMosquito extends VariantMosquito {
       .setRotation(Math.atan2(velocity.y, velocity.x));
 
     if (Phaser.Math.Distance.Between(this.x, this.y, this.attackTarget.x, this.attackTarget.y) < 18) {
+      if (reachTarget(this, this.callbacks)) {
+        return;
+      }
       this.beginFeeding(this.attackTarget, this.callbacks.onDamage);
       this.callbacks.onBite?.(this);
     }

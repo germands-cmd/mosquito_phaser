@@ -29,10 +29,10 @@ export class StressSystem {
    */
   constructor(config = {}) {
     this.maxStress       = config.maxStress       ?? 100;
-    this.baseHitStress   = config.baseHitStress   ?? 6;
-    this.biteStress      = config.biteStress      ?? 3;
-    this.streakIncrement = config.streakIncrement ?? 0.1;
-    this.streakCap       = config.streakCap       ?? 2.0;
+    this.baseHitStress   = config.baseHitStress   ?? 4;
+    this.biteStress      = config.biteStress      ?? 2;
+    this.streakIncrement = config.streakIncrement ?? 0.05;
+    this.streakCap       = config.streakCap       ?? 1.5;
 
     this.stress     = 0;
     this.streak     = 0;

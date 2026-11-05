@@ -4,7 +4,6 @@ import Phaser from "phaser";
  * Environment.js
  * Renders the top-down first-person room view with background image assets/background_legs.jpg:
  * - Exposed legs polygon colliders (left and right) with numbered point IDs for manual adjustments
- * - Visual numeric IDs rendered on screen at each vertex point in debug mode (D key)
  * - Rejection sampling ensuring mosquito attacks land strictly on exposed skin (with side selection support)
  * - Visual bite marks (red welts) on skin
  */
@@ -72,74 +71,6 @@ export class Environment {
 
     this.biteGraphics = this.scene.add.graphics().setDepth(5);
 
-    // Create debug visuals with numbered vertex badges
-    this.createDebugVisuals();
-  }
-
-  /**
-   * Initializes debug visualization for polygon colliders and their numbered points.
-   */
-  createDebugVisuals() {
-    this.debugContainer = this.scene.add
-      .container(0, 0)
-      .setDepth(34)
-      .setVisible(false);
-
-    const g = this.scene.add.graphics();
-    this.debugContainer.add(g);
-
-    // 1. Semi-transparent polygon fills & outlines
-    // Left leg - Cyan
-    g.fillStyle(0x00ffff, 0.22);
-    g.fillPoints(this.leftLegPolygon.points, true);
-    g.lineStyle(3, 0x00ffff, 0.9);
-    g.strokePoints(this.leftLegPolygon.points, true);
-
-    // Right leg - Magenta
-    g.fillStyle(0xff00ff, 0.22);
-    g.fillPoints(this.rightLegPolygon.points, true);
-    g.lineStyle(3, 0xff00ff, 0.9);
-    g.strokePoints(this.rightLegPolygon.points, true);
-
-    // 2. Vertex markers with numeric ID badges
-    const renderNumberedPoints = (points, strokeHex, badgeFill, textColor) => {
-      points.forEach((pt) => {
-        // Vertex center dot
-        g.fillStyle(0xffffff, 1);
-        g.fillCircle(pt.x, pt.y, 3);
-
-        // Circular badge for the ID
-        g.fillStyle(badgeFill, 0.92);
-        g.fillCircle(pt.x, pt.y, 11);
-        g.lineStyle(2, strokeHex, 1);
-        g.strokeCircle(pt.x, pt.y, 11);
-
-        // Text displaying the point ID number
-        const idText = this.scene.add
-          .text(pt.x, pt.y, `${pt.id}`, {
-            fontFamily: '"Impact", "Arial Black", Arial, sans-serif',
-            fontSize: "12px",
-            fontWeight: "bold",
-            color: textColor,
-          })
-          .setOrigin(0.5, 0.5);
-
-        this.debugContainer.add(idText);
-      });
-    };
-
-    renderNumberedPoints(this.leftLegPoints, 0x00ffff, 0x072833, "#00ffff");
-    renderNumberedPoints(this.rightLegPoints, 0xff00ff, 0x330728, "#ff55ff");
-  }
-
-  /**
-   * Toggles visibility of the collider debug visualization.
-   * @param {boolean} visible
-   */
-  setDebugVisible(visible) {
-    if (this.debugContainer) {
-      this.debugContainer.setVisible(visible);
-    }
   }
 
   /**
@@ -266,9 +197,6 @@ export class Environment {
    * Cleanup
    */
   destroy() {
-    if (this.debugContainer) {
-      this.debugContainer.destroy();
-    }
     this.biteGraphics.destroy();
     this.background.destroy();
   }

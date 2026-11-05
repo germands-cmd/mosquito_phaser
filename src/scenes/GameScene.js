@@ -10,12 +10,11 @@ import {
 import { AbilityManager } from "../abilities/AbilityManager.js";
 import { BloodHealthBar } from "../ui/BloodHealthBar.js";
 import { VisualHelpIndicator } from "../ui/VisualHelpIndicator.js";
-import { ReadyOverlay } from "../ui/overlays/ReadyOverlay.js";
 import { PauseOverlay } from "../ui/overlays/PauseOverlay.js";
 import { GameOverOverlay } from "../ui/overlays/GameOverOverlay.js";
-import { DebugOverlay } from "../ui/overlays/DebugOverlay.js";
 import { PhaseResultsOverlay } from "../ui/overlays/PhaseResultsOverlay.js";
 import { PHASE_CONFIGS } from "../progression/PhaseConfig.js";
+import { createBloodSplat } from "../effects/BloodSplat.js";
 
 export const GAME_STATES = {
   READY: "READY",
@@ -39,7 +38,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.gameState = GAME_STATES.READY;
+    this.gameState = GAME_STATES.PLAYING;
     this.maxHealth = 100;
     this.health = 100;
     this.swats = 0;
@@ -73,9 +72,6 @@ export default class GameScene extends Phaser.Scene {
           this.handleFeedingDamage(mosquito, tickCount, damage),
         onAreaEffect: (x, y, radius, color) =>
           this.showMosquitoExplosion(x, y, radius, color),
-        onWarningStart: (dirData, durationSec) => {
-          this.debugOverlay.setDebugInfo(dirData.name, `${durationSec.toFixed(1)}s`);
-        },
         onVisualWarning: (dirData, spawnPos, durationSec) => {
           this.visualHelp.show(dirData, spawnPos, durationSec);
         },
@@ -88,7 +84,6 @@ export default class GameScene extends Phaser.Scene {
         onPhaseComplete: () => this.completePhase(),
       }
     );
-
     // 5. In-Game HUD & Ability System
     this.createHUD();
     this.abilityManager = new AbilityManager(
@@ -98,15 +93,7 @@ export default class GameScene extends Phaser.Scene {
       this.swatter
     );
 
-    // 6. UI Overlays
-    this.readyOverlay = new ReadyOverlay(this, {
-      defaultMode: this.currentMode,
-      onStart: (mode) => {
-        this.currentMode = mode;
-        this.startGame();
-      },
-    });
-
+    // 6. Gameplay overlays
     this.pauseOverlay = new PauseOverlay(this, {
       onToggle: () => {
         if (this.gameState === GAME_STATES.PLAYING) this.pauseGame();
@@ -122,14 +109,20 @@ export default class GameScene extends Phaser.Scene {
       onMenu: () => this.goToMainMenu(),
     });
 
-    this.debugOverlay = new DebugOverlay(this);
     this.phaseResultsOverlay = new PhaseResultsOverlay(this, {
       onNext: () => this.startNextPhase(),
       onMenu: () => this.goToMainMenu(),
     });
+    this.transitionOverlay = this.add
+      .rectangle(0, 0, this.scale.width, this.scale.height, 0x000000)
+      .setOrigin(0)
+      .setDepth(100)
+      .setAlpha(0);
 
     // 7. Input Wiring
     this.setupInputHandlers();
+    this.startPhase(0);
+    this.fadeFromBlack();
   }
 
   initBloodParticles() {
@@ -158,7 +151,9 @@ export default class GameScene extends Phaser.Scene {
     const barWidth = 340;
     const barHeight = 24;
     const barX = (this.scale.width - barWidth) / 2;
-    const barY = this.scale.height - 38;
+    // Keep the complete health/stress/ability HUD group 20px above the screen edge.
+    // The stress frame extends 5px below the health bar.
+    const barY = this.scale.height - 49;
     this.bloodHealthBar = new BloodHealthBar(
       this,
       barX,
@@ -175,13 +170,12 @@ export default class GameScene extends Phaser.Scene {
     this.input.on("pointermove", (pointer) => {
       if (this.gameState === GAME_STATES.PAUSED) return;
       this.swatter.updatePosition(pointer.worldX, pointer.worldY);
-      if (this.debugOverlay.isEnabled) {
-        this.debugOverlay.update(pointer.worldX, pointer.worldY);
-      }
     });
 
     this.input.on("pointerdown", (pointer) => {
       if (pointer.button !== 0) return;
+      this.audio.prime();
+
       if (this.abilityManager && this.abilityManager.isInvulnerable()) return;
 
       if (this.gameState === GAME_STATES.PLAYING) {
@@ -205,20 +199,17 @@ export default class GameScene extends Phaser.Scene {
               this.audio.playSwatMiss();
               this.abilityManager?.stressSystem.onMiss();
             }
+          } else {
+            this.audio.playSwatHit();
           }
         });
       }
     });
 
-    // Active Ability Activation Keys (1 and 2)
-    this.input.keyboard.on("keydown-ONE", () => {
+    // Stress frenzy activation
+    this.input.keyboard.on("keydown-SPACE", () => {
       if (this.gameState === GAME_STATES.PLAYING) {
-        this.abilityManager.activateSlot(0);
-      }
-    });
-    this.input.keyboard.on("keydown-TWO", () => {
-      if (this.gameState === GAME_STATES.PLAYING) {
-        this.abilityManager.activateSlot(1);
+        this.abilityManager.activateFrenzy();
       }
     });
 
@@ -237,15 +228,17 @@ export default class GameScene extends Phaser.Scene {
   // -------------------------------------------------------------
   startGame() {
     this.audio.init();
-    this.gameState = GAME_STATES.PLAYING;
-    this.phaseTransitioning = false;
-    this.phaseResultsOverlay.hide();
-    this.readyOverlay.hide();
-    this.pauseOverlay.hide();
-    this.gameOverOverlay.hide();
+    this.fadeToBlack(() => {
+      this.gameState = GAME_STATES.PLAYING;
+      this.phaseTransitioning = false;
+      this.phaseResultsOverlay.hide();
+      this.pauseOverlay.hide();
+      this.gameOverOverlay.hide();
 
-    this.mosquitoManager.setMode(this.currentMode);
-    this.startPhase(0);
+      this.mosquitoManager.setMode(this.currentMode);
+      this.startPhase(0);
+      this.fadeFromBlack();
+    });
   }
 
   startPhase(index) {
@@ -273,25 +266,49 @@ export default class GameScene extends Phaser.Scene {
     this.phaseTransitioning = true;
     this.mosquitoManager.stopSpawning();
     this.gameState = GAME_STATES.READY;
-    this.cameras.main.fadeOut(900, 0, 0, 0);
-    this.time.delayedCall(900, () => {
+    this.fadeToBlack(() => {
       this.phaseResultsOverlay.show({
         phaseId: this.phaseIndex + 1,
         eliminated: this.phaseEliminated,
         bites: this.phaseBites,
         final: this.phaseIndex === PHASE_CONFIGS.length - 1,
       });
+      this.fadeFromBlack();
     });
   }
 
   startNextPhase() {
     if (!this.phaseTransitioning || this.phaseIndex >= PHASE_CONFIGS.length - 1) return;
-    this.phaseResultsOverlay.hide();
-    this.cameras.main.fadeIn(900, 0, 0, 0);
-    this.time.delayedCall(900, () => {
+    this.fadeToBlack(() => {
+      this.phaseResultsOverlay.hide();
       this.phaseTransitioning = false;
       this.gameState = GAME_STATES.PLAYING;
       this.startPhase(this.phaseIndex + 1);
+      this.fadeFromBlack();
+    });
+  }
+
+  fadeToBlack(onComplete) {
+    this.transitionOverlay?.setAlpha(0);
+    this.transitionTween?.stop();
+    this.transitionTween = this.tweens.add({
+      targets: this.transitionOverlay,
+      alpha: 1,
+      duration: 450,
+      ease: "Sine.easeInOut",
+      onComplete,
+    });
+  }
+
+  fadeFromBlack(onComplete) {
+    this.transitionTween?.stop();
+    this.transitionOverlay?.setAlpha(1);
+    this.transitionTween = this.tweens.add({
+      targets: this.transitionOverlay,
+      alpha: 0,
+      duration: 450,
+      ease: "Sine.easeInOut",
+      onComplete,
     });
   }
 
@@ -350,8 +367,17 @@ export default class GameScene extends Phaser.Scene {
     this.abilityManager?.reset();
     this.health = this.maxHealth;
     this.bloodHealthBar?.reset();
-    this.gameState = GAME_STATES.READY;
-    this.readyOverlay.show();
+    this.transitionOverlay.setAlpha(0);
+    this.transitionTween?.stop();
+    this.transitionTween = this.tweens.add({
+      targets: this.transitionOverlay,
+      alpha: 1,
+      duration: 450,
+      ease: "Sine.easeInOut",
+      onComplete: () => {
+      this.scene.start("main-menu");
+      },
+    });
   }
 
   triggerGameOver() {
@@ -387,38 +413,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   drawBloodSplat(x, y) {
-    const splat = this.add.graphics().setDepth(4);
-    splat.fillStyle(0x780d16, 0.85);
-    splat.fillCircle(x, y, Phaser.Math.Between(6, 11));
-    const droplets = Phaser.Math.Between(4, 8);
-    for (let i = 0; i < droplets; i++) {
-      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-      const dist = Phaser.Math.Between(10, 24);
-      const rad = Phaser.Math.Between(2, 4);
-      splat.fillCircle(
-        x + Math.cos(angle) * dist,
-        y + Math.sin(angle) * dist,
-        rad
-      );
-    }
-
-    this.bloodSplatters.push(splat);
-
-    const lifespanMs = Phaser.Math.Between(3000, 5000);
-    splat.fadeTween = this.tweens.add({
-      targets: splat,
-      alpha: 0,
-      delay: lifespanMs,
-      duration: 600,
-      ease: "Linear",
-      onComplete: () => {
-        const idx = this.bloodSplatters.indexOf(splat);
-        if (idx !== -1) {
-          this.bloodSplatters.splice(idx, 1);
-        }
-        splat.destroy();
-      },
-    });
+    createBloodSplat(this, this.bloodSplatters, x, y);
   }
 
   showMosquitoExplosion(x, y, radius, color = 0xa51628) {
@@ -460,6 +455,13 @@ export default class GameScene extends Phaser.Scene {
     }
     if (this.abilityManager && this.abilityManager.isInvulnerable()) {
       return;
+    }
+    if (this.gameState === GAME_STATES.PLAYING &&
+        this.abilityManager &&
+        !this.abilityManager.isFrenzyActive()) {
+      const wasAlreadyFull = this.abilityManager.stressSystem.isFull();
+      this.abilityManager.stressSystem.onBite();
+      this._onStressChanged(wasAlreadyFull);
     }
   }
 
@@ -506,11 +508,11 @@ export default class GameScene extends Phaser.Scene {
   shutdown() {
     this.clearBloodSplats();
     this.visualHelp?.destroy();
-    this.readyOverlay?.destroy();
     this.pauseOverlay?.destroy();
     this.gameOverOverlay?.destroy();
     this.phaseResultsOverlay?.destroy();
-    this.debugOverlay?.destroy();
+    this.transitionTween?.stop();
+    this.transitionOverlay?.destroy();
     this.bloodHealthBar?.destroy();
     this.abilityManager?.destroy();
     this.mosquitoManager?.destroy();

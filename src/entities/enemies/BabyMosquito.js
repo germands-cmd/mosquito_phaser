@@ -24,6 +24,7 @@ export class BabyMosquito extends VariantMosquito {
     this.x = position.x;
     this.y = position.y;
     this.launchVelocity = velocity;
+    this.menuTarget = callbacks.menuTarget;
     this.container.setVisible(true);
     this.activationTimer = this.scene.time.delayedCall(delay * 1000, () => {
       if (this.state !== VARIANT_STATES.LAUNCHING) return;
@@ -45,7 +46,7 @@ export class BabyMosquito extends VariantMosquito {
     const environment = this.scene.mosquitoManager.environment;
     if (!environment.isValidLeg(this.targetLeg)) this.targetLeg = environment.getNearestLeg(this);
     const target = this.state === VARIANT_STATES.GROUPING
-      ? environment.getLegCenter(this.targetLeg)
+      ? (this.menuTarget || environment.getLegCenter(this.targetLeg))
       : this.attackPosition;
     const speed = this.state === VARIANT_STATES.GROUPING
       ? this.config.groupMovementSpeed
@@ -57,6 +58,10 @@ export class BabyMosquito extends VariantMosquito {
       this.attackPosition = environment.getRandomAttackPosition(this.targetLeg, this.config);
     } else if (this.state === VARIANT_STATES.DISPERSING &&
       distance <= this.config.minimumAttackPositionSpacing) {
+      if (this.callbacks.onTargetReached) {
+        this.callbacks.onTargetReached(this);
+        return;
+      }
       this.state = MOSQUITO_STATES.FEEDING;
       this.beginFeeding(this.attackPosition, this.callbacks.onDamage);
       this.callbacks.onBite?.(this);
