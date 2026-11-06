@@ -25,6 +25,7 @@ export const DIRECTIONS_LIST = INPUTS_LIST; // Compatibility alias
  * Stage 1 (current):
  *   - Pressure Bomb triggers automatically on every third valid impact.
  *   - Reverse Transfusion triggers automatically on the next valid impact after a 2-second cooldown.
+ *   - Impact Rain repeats one randomly selected equipped impact ability across three delayed impacts.
  *   - Frenzy mode is started with SPACE and makes every valid impact trigger both abilities.
  *   - Stress / streak system via StressSystem.
  *   - Independent per-slot cooldowns.
@@ -271,7 +272,18 @@ export class AbilityManager {
     if (this.frenzyActive) {
       this.abilities.forEach((ability, index) => {
         if (ability.activationType === "status") return;
-        this._triggerEffect(index, false, impactX, impactY, hitRadius, hitMosquitoes);
+        const extraContext = ability.id === "IMPACT_RAIN"
+          ? { replicatedAbility: this.selectReplicatedAbility(ability) }
+          : {};
+        this._triggerEffect(
+          index,
+          false,
+          impactX,
+          impactY,
+          hitRadius,
+          hitMosquitoes,
+          extraContext
+        );
         triggered = true;
       });
       return triggered;
@@ -317,10 +329,33 @@ export class AbilityManager {
             triggered = true;
           }
         }
+      } else if (ability.id === "IMPACT_RAIN") {
+        if (now >= ability.cooldownReadyAt) {
+          ability.cooldownReadyAt = now + ability.cooldownMs;
+          this.ui.updateAbilityProgress(index, 0);
+          this._triggerEffect(
+            index,
+            false,
+            impactX,
+            impactY,
+            hitRadius,
+            hitMosquitoes,
+            { replicatedAbility: this.selectReplicatedAbility(ability) }
+          );
+          triggered = true;
+        }
       }
     });
 
     return triggered;
+  }
+
+  selectReplicatedAbility(excludedAbility) {
+    const candidates = this.abilities.filter((ability) =>
+      ability !== excludedAbility && ability.activationType === "impact"
+    );
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
   }
 
   /**
@@ -633,10 +668,17 @@ export class AbilityManager {
     this.reverseTransfusionCooldownStartedAt = 0;
 
     this.abilities.forEach((ability, index) => {
-      if (ability.id === "THUNDERSTORM") ability.cooldownReadyAt = 0;
+      ability.cancelPendingImpacts?.();
+      if (ability.id === "THUNDERSTORM" || ability.id === "IMPACT_RAIN") {
+        ability.cooldownReadyAt = 0;
+      }
       this.ui.updateAbilityProgress(
         index,
-        ability.id === "REVERSE_TRANSFUSION" || ability.id === "THUNDERSTORM" ? 1 : 0
+        ability.id === "REVERSE_TRANSFUSION" ||
+          ability.id === "THUNDERSTORM" ||
+          ability.id === "IMPACT_RAIN"
+          ? 1
+          : 0
       );
     });
 
@@ -698,7 +740,7 @@ export class AbilityManager {
 
       if (ability.id === "LIGHTNING_PULSE") {
         this.updateChargeDisplay(index, ability);
-      } else if (ability.id === "THUNDERSTORM") {
+      } else if (ability.id === "THUNDERSTORM" || ability.id === "IMPACT_RAIN") {
         const cooldownStartedAt = ability.cooldownReadyAt - ability.cooldownMs;
         const progress = ability.cooldownReadyAt > 0
           ? Phaser.Math.Clamp(

@@ -19,6 +19,7 @@ export class BaseAbility {
     this.iconSymbol = iconSymbol;
     this.sequenceLength = sequenceLength;
     this.color = color;
+    this.activationType = "impact";
   }
 
   /**

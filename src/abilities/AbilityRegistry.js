@@ -2,6 +2,7 @@ import { PressureBombAbility } from './PressureBombAbility.js';
 import { ReverseTransfusionAbility } from './ReverseTransfusionAbility.js';
 import { LightningPulseAbility } from './lightning-pulse/LightningPulseAbility.js';
 import { ThunderstormAbility } from './thunderstorm/ThunderstormAbility.js';
+import { ImpactRainAbility } from './impact-rain/ImpactRainAbility.js';
 
 /**
  * AbilityRegistry.js
@@ -40,6 +41,14 @@ export const ABILITY_DEFINITIONS = [
     iconSymbol: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 512 512"><!-- Icon from Game Icons by GameIcons - https://github.com/game-icons/icons/blob/master/license.txt --><path fill="#c4c4c4" d="M140.2 23.414c15.085 32.345 32.656 63.74 52.378 93.875l5.117 6.558l-.023-34.914l71.494 120.16l12.21-30.672l62.49 111.574l10.792-23.053l46.98 65.72c28.694 19.943 58.638 37.808 89.563 53.27c-9.573-53.755-22.974-106.946-46.167-158.7l-15.385 36.853l-60.82-106.8l-7.33 21.812l-58.623-100.784l-9.523 36.104l-57.16-69.95l-8.792 27.077zM32.905 30.65c.498 1.085 1.01 2.16 1.512 3.24l128.55 182.686l-15.07 2.442l85.834 57.697l-31.3 9.924l138.322 85.465l-34.393 16.145l5.4 3.322c-.7-1.014-1.393-2.032-2.098-3.043a790 790 0 0 0 12.584 9.49l109.297 67.22a677 677 0 0 0 44.418 20.156c-10.046-21.494-21.62-43.198-34.51-64.898l-83.413-116.693l-12.685 27.093l-61.118-109.127l-11.734 29.474l-56.094-94.275l.014 21.255l-48.426-62.06C123.39 81.91 77.68 52.7 32.904 30.65zM19.557 136.71l29.308 61.67l-34.44-.745l81.34 67.69L60.59 275.1l123.84 95.517l-44.7 3.76l148.02 83.487l-32.973 12.033l117.977 27.077c-11.174-23.545-23.634-46.537-37.254-68.864l-68.41-42.074l34.47-16.183l-143.597-88.726l33.185-10.52L98.2 208.132l30.69-4.97C94.145 177.7 57.52 155.358 19.556 136.71z"/></svg>',
     color: '#397f90',
     createInstance: () => new ThunderstormAbility(),
+  },
+  {
+    id: 'IMPACT_RAIN',
+    name: 'Impact Rain',
+    description: 'Creates three spaced impacts that repeat one of your impact abilities.',
+    iconSymbol: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 512 512"><!-- Icon from Game Icons by GameIcons - https://github.com/game-icons/icons/blob/master/license.txt --><path fill="#c4c4c4" d="M105.4 26.28C122.1 96.08 82.98 121 27 132.6c70.72 24.3 36.69 48.4 21.99 72.6c66.01-5.1 87.51 25.8 87.41 74.3c36.5-20.1 51.6-62.3 147.1-21.6c-23.4-43.1-31.9-75.3 20.3-118.5c-39.7-14.2-77-30.2-58.1-81.17c-56.3 37.85-98.9 5.52-140.3-31.95m66.9 67.89a62.23 62.23 0 0 1 62.2 62.23a62.23 62.23 0 0 1-62.2 62.2a62.23 62.23 0 0 1-62.2-62.2a62.23 62.23 0 0 1 62.2-62.23M318.9 218.2c17.3 81.3-25 98-89 91.2c30.9 31.9 50.2 68 16.1 123.1c45.3-11.2 88.5-13.6 113.9 49.8c22.5-46.1 64.8-52.4 116.7-38.7c-17.9-27.7-38-55.4 16.9-82.8c-37-25.5-74.3-50.7-49.4-124.5c-45.3 51-86.7 40.1-125.2-18.1m47.4 76.7a62.23 62.23 0 0 1 62.2 62.2a62.23 62.23 0 0 1-62.2 62.2a62.23 62.23 0 0 1-62.2-62.2a62.23 62.23 0 0 1 62.2-62.2"/></svg>',
+    color: '#45b1ff',
+    createInstance: () => new ImpactRainAbility(),
   },
 ];
 
