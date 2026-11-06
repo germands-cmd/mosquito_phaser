@@ -56,10 +56,15 @@ export class ImpactRainAbility extends BaseAbility {
     for (let index = 0; index < this.config.impactCount; index++) {
       const timer = scene.time.delayedCall(this.config.impactIntervalMs * (index + 1), () => {
         this.pendingTimers.delete(timer);
+        const bounds = scene.cameras.main?.worldView ?? {
+          x: 0,
+          y: 0,
+          width: scene.scale.width,
+          height: scene.scale.height,
+        };
         const target = this.selectTarget(
           mosquitoManager,
-          scene.scale.width,
-          scene.scale.height,
+          bounds,
           selectedPositions
         );
         if (!target) {
@@ -98,14 +103,14 @@ export class ImpactRainAbility extends BaseAbility {
     }
   }
 
-  selectTarget(mosquitoManager, width, height, selectedPositions) {
+  selectTarget(mosquitoManager, bounds, selectedPositions) {
     const candidates = mosquitoManager.mosquitoPool.filter((enemy) =>
       enemy.isAlive() &&
       enemy.isSwattable() &&
-      enemy.x >= 0 &&
-      enemy.x <= width &&
-      enemy.y >= 0 &&
-      enemy.y <= height
+      enemy.x >= bounds.x &&
+      enemy.x <= bounds.x + bounds.width &&
+      enemy.y >= bounds.y &&
+      enemy.y <= bounds.y + bounds.height
     );
     if (candidates.length === 0) return null;
 
