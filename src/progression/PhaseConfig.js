@@ -10,6 +10,7 @@ const FORMATIONS = {
 
 const phase = (phaseId, durationMs, enemyWeights, formationWeights, normal, hordes) => ({
   phaseId,
+  backgroundKey: `phase_${phaseId}_legs`,
   durationMs,
   initialSpawnDelayMs: 3000,
   normalSpawn: normal,

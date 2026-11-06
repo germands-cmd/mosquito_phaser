@@ -11,6 +11,16 @@
     <div class="header-left">
       <div class="logo">🦟 <span>Leg Collider Editor</span></div>
       <div class="status-badge" id="server-status">Modo Standalone</div>
+      <label class="phase-selector" for="phase-select">
+        Fase
+        <select id="phase-select">
+          <option value="1">Fase 1</option>
+          <option value="2">Fase 2</option>
+          <option value="3">Fase 3</option>
+          <option value="4">Fase 4</option>
+          <option value="5">Fase 5</option>
+        </select>
+      </label>
     </div>
     <div class="header-center">
       <div class="btn-group">
@@ -23,8 +33,8 @@
       <button id="btn-undo" class="btn btn-icon" title="Deshacer (Ctrl+Z)">↩ Deshacer</button>
       <button id="btn-redo" class="btn btn-icon" title="Rehacer (Ctrl+Y)">↪ Rehacer</button>
       <button id="btn-test-sample" class="btn btn-warning" title="Genera 80 puntos aleatorios para probar colisión">🎯 Probar Muestreo</button>
-      <button id="btn-save-file" class="btn btn-success" title="Guarda directamente en src/entities/Environment.js">💾 Guardar en Proyecto</button>
-      <button id="btn-copy-code" class="btn btn-primary" title="Copia el código JavaScript al portapapeles">📋 Copiar Código</button>
+      <button id="btn-save-file" class="btn btn-success" title="Guarda los colliders de la fase seleccionada">💾 Guardar en Proyecto</button>
+      <button id="btn-copy-code" class="btn btn-primary" title="Copia la configuración JSON de todas las fases">📋 Copiar JSON</button>
     </div>
   </header>
 
@@ -86,8 +96,8 @@
 
       <div class="sidebar-content hidden" id="sidebar-code-view">
         <div class="code-header">
-          <span>src/entities/Environment.js</span>
-          <button id="btn-copy-code-tab" class="btn btn-sm btn-primary">Copiar Código</button>
+          <span>src/entities/legColliders.json</span>
+          <button id="btn-copy-code-tab" class="btn btn-sm btn-primary">Copiar JSON</button>
         </div>
         <pre class="code-preview" id="code-preview"></pre>
       </div>

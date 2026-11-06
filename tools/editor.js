@@ -2,42 +2,52 @@
  * editor.js - Mosquito Legs Collider Visual Editor
  */
 
-// Original points from src/entities/Environment.js
+// Default points copied from phase 4's original Environment colliders.
 const DEFAULT_LEFT_POINTS = [
-  { id: 0, x: 260, y: 680 },
-  { id: 1, x: 215, y: 620 },
-  { id: 2, x: 185, y: 520 },
-  { id: 3, x: 180, y: 420 },
-  { id: 4, x: 190, y: 340 },
-  { id: 5, x: 230, y: 290 },
-  { id: 6, x: 310, y: 280 },
-  { id: 7, x: 360, y: 290 },
-  { id: 8, x: 385, y: 335 },
-  { id: 9, x: 390, y: 400 },
-  { id: 10, x: 460, y: 520 },
-  { id: 11, x: 530, y: 610 },
-  { id: 12, x: 620, y: 680 },
-  { id: 13, x: 480, y: 700 },
-  { id: 14, x: 350, y: 700 },
+  { id: 0, x: 366, y: 669 },
+  { id: 1, x: 315, y: 604 },
+  { id: 2, x: 283, y: 540 },
+  { id: 3, x: 260, y: 438 },
+  { id: 4, x: 264, y: 313 },
+  { id: 5, x: 292, y: 264 },
+  { id: 6, x: 354, y: 241 },
+  { id: 7, x: 403, y: 271 },
+  { id: 8, x: 445, y: 320 },
+  { id: 9, x: 493, y: 375 },
+  { id: 10, x: 530, y: 431 },
+  { id: 11, x: 584, y: 473 },
+  { id: 12, x: 621, y: 550 },
+  { id: 13, x: 547, y: 624 },
+  { id: 14, x: 456, y: 660 },
 ];
 
 const DEFAULT_RIGHT_POINTS = [
-  { id: 0, x: 750, y: 680 },
-  { id: 1, x: 840, y: 610 },
-  { id: 2, x: 910, y: 520 },
-  { id: 3, x: 985, y: 400 },
-  { id: 4, x: 990, y: 335 },
-  { id: 5, x: 1015, y: 290 },
-  { id: 6, x: 1065, y: 280 },
-  { id: 7, x: 1145, y: 290 },
-  { id: 8, x: 1185, y: 340 },
-  { id: 9, x: 1195, y: 420 },
-  { id: 10, x: 1190, y: 520 },
-  { id: 11, x: 1160, y: 620 },
-  { id: 12, x: 1115, y: 680 },
-  { id: 13, x: 1020, y: 700 },
-  { id: 14, x: 890, y: 700 },
+  { id: 0, x: 748, y: 540 },
+  { id: 1, x: 782, y: 484 },
+  { id: 2, x: 833, y: 433 },
+  { id: 3, x: 880, y: 369 },
+  { id: 4, x: 919, y: 320 },
+  { id: 5, x: 979, y: 269 },
+  { id: 6, x: 1028, y: 239 },
+  { id: 7, x: 1090, y: 283 },
+  { id: 8, x: 1106, y: 352 },
+  { id: 9, x: 1109, y: 431 },
+  { id: 10, x: 1095, y: 523 },
+  { id: 11, x: 1051, y: 607 },
+  { id: 12, x: 1000, y: 672 },
+  { id: 13, x: 893, y: 648 },
+  { id: 14, x: 808, y: 602 },
 ];
+
+const PHASE_IMAGE_FILES = {
+  1: 'phase_1_legs.jpg',
+  2: 'phase_2_legs.jpg',
+  3: 'phase_3_legs.jpg',
+  4: 'phase_4_legs.jpg',
+  5: 'phase_5_legs.jpg'
+};
+
+const clone = (value) => JSON.parse(JSON.stringify(value));
 
 class ColliderEditor {
   constructor() {
@@ -46,8 +56,14 @@ class ColliderEditor {
     this.wrapper = document.getElementById('canvas-wrapper');
     this.viewport = document.getElementById('viewport');
 
-    this.leftPoints = JSON.parse(JSON.stringify(DEFAULT_LEFT_POINTS));
-    this.rightPoints = JSON.parse(JSON.stringify(DEFAULT_RIGHT_POINTS));
+    this.phaseId = 1;
+    this.phaseColliders = Object.fromEntries(
+      Object.keys(PHASE_IMAGE_FILES).map((phaseId) => [phaseId, {
+        leftLegPoints: clone(DEFAULT_LEFT_POINTS),
+        rightLegPoints: clone(DEFAULT_RIGHT_POINTS)
+      }])
+    );
+    this.loadPhaseColliders();
 
     this.activeLeg = 'left'; // 'left' | 'right'
     this.viewFilter = 'both'; // 'both' | 'left' | 'right'
@@ -81,27 +97,30 @@ class ColliderEditor {
   }
 
   loadBackgroundImage() {
-    const candidatePaths = [
-      '../assets/background_legs.jpg',
-      '/assets/background_legs.jpg',
-      'assets/background_legs.jpg'
-    ];
+    const image = new Image();
+    const imageFile = PHASE_IMAGE_FILES[this.phaseId];
+    const candidatePaths = [`../assets/${imageFile}`, `/assets/${imageFile}`, `assets/${imageFile}`];
     let candidateIndex = 0;
+    this.bgImage = image;
+    this.bgLoaded = false;
 
     const tryNext = () => {
       if (candidateIndex >= candidatePaths.length) {
-        console.warn('Could not load legs image, using fallback backdrop.');
+        console.warn(`Could not load legs image for phase ${this.phaseId}: ${imageFile}`);
         this.render();
         return;
       }
-      this.bgImage.src = candidatePaths[candidateIndex++];
+      image.src = candidatePaths[candidateIndex++];
     };
 
-    this.bgImage.onload = () => {
+    image.onload = () => {
+      if (this.bgImage !== image) return;
       this.bgLoaded = true;
       this.render();
     };
-    this.bgImage.onerror = tryNext;
+    image.onerror = () => {
+      if (this.bgImage === image) tryNext();
+    };
     tryNext();
   }
 
@@ -110,30 +129,63 @@ class ColliderEditor {
     const saveBtn = document.getElementById('btn-save-file');
     try {
       const res = await fetch('/api/colliders', { cache: 'no-cache' });
-      if (res.ok) {
-        const data = await res.json();
-        this.isServerConnected = true;
-        badge.textContent = '● Conectado a Environment.js';
-        badge.classList.add('online');
-        saveBtn.textContent = '💾 Guardar en Environment.js';
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      this.isServerConnected = true;
+      badge.textContent = '● Conectado a legColliders.json';
+      badge.classList.add('online');
+      saveBtn.textContent = '💾 Guardar en JSON';
 
-        if (data.leftLegPoints && data.leftLegPoints.length > 0) {
-          this.leftPoints = data.leftLegPoints;
+      for (const [phaseId, colliders] of Object.entries(data.phaseColliders || {})) {
+        if (PHASE_IMAGE_FILES[phaseId] && Array.isArray(colliders.leftLegPoints) &&
+          Array.isArray(colliders.rightLegPoints)) {
+          this.phaseColliders[phaseId] = {
+            leftLegPoints: clone(colliders.leftLegPoints),
+            rightLegPoints: clone(colliders.rightLegPoints)
+          };
+          this.reindexPoints(this.phaseColliders[phaseId].leftLegPoints);
+          this.reindexPoints(this.phaseColliders[phaseId].rightLegPoints);
         }
-        if (data.rightLegPoints && data.rightLegPoints.length > 0) {
-          this.rightPoints = data.rightLegPoints;
-        }
-        this.pushHistory();
-        this.updateUI();
-        this.render();
-        this.showToast('Datos cargados directamente desde Environment.js', 'success');
       }
-    } catch {
+      this.loadPhaseColliders();
+      this.pushHistory();
+      this.updateUI();
+      this.render();
+      this.showToast('Colliders cargados desde legColliders.json', 'success');
+    } catch (err) {
       this.isServerConnected = false;
       badge.textContent = 'Modo Navegador';
       badge.classList.remove('online');
-      saveBtn.textContent = '💾 Guardar (Descargar / Copiar)';
+      saveBtn.textContent = '💾 Guardar (Copiar JSON)';
+      console.info('Servidor de colliders no disponible; el editor continúa en modo navegador.', err);
     }
+  }
+
+  storePhaseColliders() {
+    this.phaseColliders[this.phaseId] = {
+      leftLegPoints: this.leftPoints,
+      rightLegPoints: this.rightPoints
+    };
+  }
+
+  loadPhaseColliders() {
+    const colliders = this.phaseColliders[this.phaseId];
+    this.leftPoints = colliders.leftLegPoints;
+    this.rightPoints = colliders.rightLegPoints;
+    const phaseSelect = document.getElementById('phase-select');
+    if (phaseSelect) phaseSelect.value = String(this.phaseId);
+  }
+
+  selectPhase(phaseId, recordHistory = true) {
+    this.storePhaseColliders();
+    this.phaseId = Number(phaseId);
+    this.loadPhaseColliders();
+    this.selectedPoint = null;
+    this.testSamples = [];
+    this.loadBackgroundImage();
+    if (recordHistory) this.pushHistory();
+    this.updateUI();
+    this.render();
   }
 
   pushHistory() {
@@ -141,9 +193,10 @@ class ColliderEditor {
     if (this.historyIndex < this.history.length - 1) {
       this.history = this.history.slice(0, this.historyIndex + 1);
     }
+    this.storePhaseColliders();
     const state = {
-      left: JSON.parse(JSON.stringify(this.leftPoints)),
-      right: JSON.parse(JSON.stringify(this.rightPoints))
+      phaseId: this.phaseId,
+      phaseColliders: clone(this.phaseColliders)
     };
     this.history.push(state);
     this.historyIndex = this.history.length - 1;
@@ -167,8 +220,10 @@ class ColliderEditor {
   }
 
   applyHistoryState(state) {
-    this.leftPoints = JSON.parse(JSON.stringify(state.left));
-    this.rightPoints = JSON.parse(JSON.stringify(state.right));
+    this.phaseId = state.phaseId;
+    this.phaseColliders = clone(state.phaseColliders);
+    this.loadPhaseColliders();
+    this.loadBackgroundImage();
     this.selectedPoint = null;
     this.updateUI();
     this.render();
@@ -277,6 +332,10 @@ class ColliderEditor {
   }
 
   initEvents() {
+    document.getElementById('phase-select').addEventListener('change', (e) => {
+      this.selectPhase(e.target.value);
+    });
+
     // Window resize & shortcuts
     window.addEventListener('keydown', (e) => {
       // Ctrl+Z / Ctrl+Y
@@ -622,28 +681,8 @@ class ColliderEditor {
   }
 
   generateCode() {
-    const formatPoints = (pts) => {
-      return pts.map(p => `      { id: ${p.id}, x: ${p.x}, y: ${p.y} },`).join('\n');
-    };
-
-    const leftBounds = this.calculateBounds(this.leftPoints);
-    const rightBounds = this.calculateBounds(this.rightPoints);
-
-    return `// Exact Polygon Colliders for exposed leg skin with numeric IDs for manual tweaking
-    this.leftLegPoints = [
-${formatPoints(this.leftPoints)}
-    ];
-
-    this.rightLegPoints = [
-${formatPoints(this.rightPoints)}
-    ];
-
-    this.leftLegPolygon = new Phaser.Geom.Polygon(this.leftLegPoints);
-    this.rightLegPolygon = new Phaser.Geom.Polygon(this.rightLegPoints);
-
-    // Bounding boxes for efficient rejection sampling
-    this.leftBounds = { minX: ${leftBounds.minX}, maxX: ${leftBounds.maxX}, minY: ${leftBounds.minY}, maxY: ${leftBounds.maxY} };
-    this.rightBounds = { minX: ${rightBounds.minX}, maxX: ${rightBounds.maxX}, minY: ${rightBounds.minY}, maxY: ${rightBounds.maxY} };`;
+    this.storePhaseColliders();
+    return JSON.stringify(this.phaseColliders, null, 2);
   }
 
   updateCodePreview() {
@@ -655,7 +694,7 @@ ${formatPoints(this.rightPoints)}
     const code = this.generateCode();
     try {
       await navigator.clipboard.writeText(code);
-      this.showToast('¡Código copiado al portapapeles! Listo para pegar en Environment.js', 'success');
+      this.showToast('Configuración JSON copiada al portapapeles', 'success');
     } catch {
       // Fallback
       const ta = document.createElement('textarea');
@@ -664,46 +703,49 @@ ${formatPoints(this.rightPoints)}
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
-      this.showToast('¡Código copiado al portapapeles!', 'success');
+      this.showToast('Configuración JSON copiada al portapapeles', 'success');
     }
   }
 
   async saveColliders() {
+    this.storePhaseColliders();
     const payload = {
+      phaseId: this.phaseId,
       leftLegPoints: this.leftPoints,
-      rightLegPoints: this.rightPoints,
-      leftBounds: this.calculateBounds(this.leftPoints),
-      rightBounds: this.calculateBounds(this.rightPoints)
+      rightLegPoints: this.rightPoints
     };
 
     if (this.isServerConnected) {
+      let res;
+      let data;
       try {
-        const res = await fetch('/api/colliders', {
+        res = await fetch('/api/colliders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        if (res.ok) {
-          this.showToast('¡Guardado exitoso directamente en src/entities/Environment.js!', 'success');
-          return;
-        }
+        data = await res.json();
       } catch (err) {
-        console.error('Error saving to server:', err);
+        console.error('Error saving colliders to server:', err);
+        this.showToast('No se pudieron guardar los colliders en el proyecto', 'error');
+        return;
       }
+      if (!res.ok) {
+        this.showToast(`Error al guardar: ${data.error || res.statusText}`, 'error');
+        return;
+      }
+      this.showToast(`Colliders de la fase ${this.phaseId} guardados en legColliders.json`, 'success');
+      return;
     }
 
     // Fallback if server is not connected
     this.copyCodeToClipboard();
-    this.showToast('Servidor no activo. Código copiado al portapapeles. (Ejecuta "node tools/server.js" para guardar con 1 clic)', 'warning');
+    this.showToast('Servidor no activo. Configuración JSON copiada; ejecuta "node tools/server.js" para guardar en el proyecto.', 'warning');
   }
 
   exportJSON() {
-    const data = {
-      leftLegPoints: this.leftPoints,
-      rightLegPoints: this.rightPoints,
-      leftBounds: this.calculateBounds(this.leftPoints),
-      rightBounds: this.calculateBounds(this.rightPoints)
-    };
+    this.storePhaseColliders();
+    const data = this.phaseColliders;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -721,22 +763,38 @@ ${formatPoints(this.rightPoints)}
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target.result);
-        if (Array.isArray(data.leftLegPoints)) {
-          this.leftPoints = data.leftLegPoints;
-          this.reindexPoints(this.leftPoints);
+          const importedPhases = data.phaseColliders || data;
+          if (Array.isArray(importedPhases.leftLegPoints) || Array.isArray(importedPhases.rightLegPoints)) {
+            const current = this.phaseColliders[this.phaseId];
+            current.leftLegPoints = importedPhases.leftLegPoints || current.leftLegPoints;
+            current.rightLegPoints = importedPhases.rightLegPoints || current.rightLegPoints;
+            this.reindexPoints(current.leftLegPoints);
+            this.reindexPoints(current.rightLegPoints);
+          } else {
+            for (const phaseId of Object.keys(PHASE_IMAGE_FILES)) {
+              const colliders = importedPhases[phaseId];
+              if (!colliders) continue;
+              if (!Array.isArray(colliders.leftLegPoints) || !Array.isArray(colliders.rightLegPoints)) {
+                throw new Error(`Faltan colliders válidos para la fase ${phaseId}`);
+              }
+              this.phaseColliders[phaseId] = {
+                leftLegPoints: clone(colliders.leftLegPoints),
+                rightLegPoints: clone(colliders.rightLegPoints)
+              };
+              this.reindexPoints(this.phaseColliders[phaseId].leftLegPoints);
+              this.reindexPoints(this.phaseColliders[phaseId].rightLegPoints);
+            }
+          }
+          this.loadPhaseColliders();
+          this.loadBackgroundImage();
+          this.selectedPoint = null;
+          this.pushHistory();
+          this.updateUI();
+          this.render();
+          this.showToast('Configuración de colliders JSON cargada', 'success');
+        } catch (err) {
+          this.showToast(`Error al procesar el archivo JSON: ${err.message}`, 'error');
         }
-        if (Array.isArray(data.rightLegPoints)) {
-          this.rightPoints = data.rightLegPoints;
-          this.reindexPoints(this.rightPoints);
-        }
-        this.selectedPoint = null;
-        this.pushHistory();
-        this.updateUI();
-        this.render();
-        this.showToast('Archivo JSON cargado con éxito', 'success');
-      } catch (err) {
-        this.showToast('Error al procesar el archivo JSON', 'error');
-      }
     };
     reader.readAsText(file);
     e.target.value = '';

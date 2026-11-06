@@ -1,5 +1,10 @@
 import Phaser from "phaser";
 import backgroundLegsImg from "../../assets/background_legs.jpg";
+import phase1LegsImg from "../../assets/phase_1_legs.jpg";
+import phase2LegsImg from "../../assets/phase_2_legs.jpg";
+import phase3LegsImg from "../../assets/phase_3_legs.jpg";
+import phase4LegsImg from "../../assets/phase_4_legs.jpg";
+import phase5LegsImg from "../../assets/phase_5_legs.jpg";
 import { AudioManager, DIRECTIONS } from "../audio/AudioManager.js";
 import { Environment } from "../entities/Environment.js";
 import { Swatter } from "../entities/Swatter.js";
@@ -37,6 +42,11 @@ export default class GameScene extends Phaser.Scene {
 
   preload() {
     this.load.image("background_legs", backgroundLegsImg);
+    this.load.image("phase_1_legs", phase1LegsImg);
+    this.load.image("phase_2_legs", phase2LegsImg);
+    this.load.image("phase_3_legs", phase3LegsImg);
+    this.load.image("phase_4_legs", phase4LegsImg);
+    this.load.image("phase_5_legs", phase5LegsImg);
   }
 
   create() {
@@ -264,6 +274,7 @@ export default class GameScene extends Phaser.Scene {
     this.health = this.maxHealth;
     this.bloodHealthBar.setHealth(this.health, this.maxHealth);
     this.abilityManager?.reset();
+    this.environment.setPhase(config.phaseId, config.backgroundKey);
     this.environment.reset();
     this.visualHelp.hideAll();
     this.mosquitoManager.stop();

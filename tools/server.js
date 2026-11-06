@@ -10,56 +10,38 @@ const __dirname = path.dirname(__filename);
 const PORT = 3333;
 const ROOT_DIR = path.resolve(__dirname, '..');
 const TOOLS_DIR = path.resolve(__dirname);
-const ENV_PATH = path.join(ROOT_DIR, 'src', 'entities', 'Environment.js');
+const COLLIDERS_PATH = path.join(ROOT_DIR, 'src', 'entities', 'legColliders.json');
 
-function parseLegPoints(content, varName) {
-  const regex = new RegExp(`this\\.${varName}\\s*=\\s*\\[([\\s\\S]*?)\\];`);
-  const match = content.match(regex);
-  if (!match) return null;
-  const arrayBody = match[1];
-  const points = [];
-  const ptRegex = /\{\s*id:\s*(\d+),\s*x:\s*(\d+),\s*y:\s*(\d+)\s*\}/g;
-  let ptMatch;
-  while ((ptMatch = ptRegex.exec(arrayBody)) !== null) {
-    points.push({
-      id: parseInt(ptMatch[1], 10),
-      x: parseInt(ptMatch[2], 10),
-      y: parseInt(ptMatch[3], 10)
-    });
+function normalizePoints(points, name) {
+  if (!Array.isArray(points) || points.length < 3) {
+    throw new Error(`${name} debe contener al menos 3 vértices.`);
   }
-  return points;
+  return points.map((point, index) => {
+    const x = Number(point.x);
+    const y = Number(point.y);
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x > 1376 || y < 0 || y > 768) {
+      throw new Error(`${name}[${index}] tiene coordenadas inválidas.`);
+    }
+    return { id: index, x, y };
+  });
 }
 
-function updateEnvironmentFile(leftPoints, rightPoints, leftBounds, rightBounds) {
-  let content = fs.readFileSync(ENV_PATH, 'utf8');
+function readColliders() {
+  return JSON.parse(fs.readFileSync(COLLIDERS_PATH, 'utf8'));
+}
 
-  const formatPoints = (pts) => {
-    return pts.map(p => `      { id: ${p.id}, x: ${p.x}, y: ${p.y} },`).join('\n');
-  };
-
-  const replacementBlock = `    // Exact Polygon Colliders for exposed leg skin with numeric IDs for manual tweaking
-    this.leftLegPoints = [
-${formatPoints(leftPoints)}
-    ];
-
-    this.rightLegPoints = [
-${formatPoints(rightPoints)}
-    ];
-
-    this.leftLegPolygon = new Phaser.Geom.Polygon(this.leftLegPoints);
-    this.rightLegPolygon = new Phaser.Geom.Polygon(this.rightLegPoints);
-
-    // Bounding boxes for efficient rejection sampling
-    this.leftBounds = { minX: ${leftBounds.minX}, maxX: ${leftBounds.maxX}, minY: ${leftBounds.minY}, maxY: ${leftBounds.maxY} };
-    this.rightBounds = { minX: ${rightBounds.minX}, maxX: ${rightBounds.maxX}, minY: ${rightBounds.minY}, maxY: ${rightBounds.maxY} };`;
-
-  const regexTarget = /\/\/\s*Exact Polygon Colliders[\s\S]*?this\.rightBounds\s*=\s*\{[^}]*\};/;
-  if (!regexTarget.test(content)) {
-    throw new Error('No se encontró el bloque de polígonos en Environment.js');
+function savePhaseColliders(data) {
+  const phaseId = Number(data.phaseId);
+  if (!Number.isInteger(phaseId) || phaseId < 1 || phaseId > 5) {
+    throw new Error('La fase debe ser un número entre 1 y 5.');
   }
 
-  content = content.replace(regexTarget, replacementBlock.trim());
-  fs.writeFileSync(ENV_PATH, content, 'utf8');
+  const phaseColliders = readColliders();
+  phaseColliders[phaseId] = {
+    leftLegPoints: normalizePoints(data.leftLegPoints, 'leftLegPoints'),
+    rightLegPoints: normalizePoints(data.rightLegPoints, 'rightLegPoints'),
+  };
+  fs.writeFileSync(COLLIDERS_PATH, `${JSON.stringify(phaseColliders, null, 2)}\n`, 'utf8');
 }
 
 const MIME_TYPES = {
@@ -75,14 +57,10 @@ const MIME_TYPES = {
 const server = http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0];
 
-  // API endpoints
   if (req.method === 'GET' && urlPath === '/api/colliders') {
     try {
-      const content = fs.readFileSync(ENV_PATH, 'utf8');
-      const left = parseLegPoints(content, 'leftLegPoints');
-      const right = parseLegPoints(content, 'rightLegPoints');
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ leftLegPoints: left, rightLegPoints: right }));
+      res.end(JSON.stringify({ phaseColliders: readColliders() }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
@@ -96,25 +74,19 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const data = JSON.parse(body);
-        updateEnvironmentFile(
-          data.leftLegPoints,
-          data.rightLegPoints,
-          data.leftBounds,
-          data.rightBounds
-        );
-        console.log(`[OK] Colliders guardados con éxito en ${ENV_PATH}`);
+        savePhaseColliders(data);
+        console.log(`[OK] Colliders de la fase ${Number(data.phaseId)} guardados en ${COLLIDERS_PATH}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true }));
       } catch (err) {
         console.error('[Error al guardar]:', err);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
       }
     });
     return;
   }
 
-  // Static files serving
   let filePath;
   if (urlPath === '/' || urlPath === '/index.html') {
     filePath = path.join(TOOLS_DIR, 'index.html');

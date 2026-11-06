@@ -1,8 +1,9 @@
 import Phaser from "phaser";
+import legCollidersByPhase from "./legColliders.json";
 
 /**
  * Environment.js
- * Renders the top-down first-person room view with background image assets/background_legs.jpg:
+ * Renders the top-down first-person room view with phase-specific leg backgrounds and colliders:
  * - Exposed legs polygon colliders (left and right) with numbered point IDs for manual adjustments
  * - Rejection sampling ensuring mosquito attacks land strictly on exposed skin (with side selection support)
  * - Visual bite marks (red welts) on skin
@@ -25,52 +26,33 @@ export class Environment {
       .image(this.width / 2, this.height / 2, "background_legs")
       .setDepth(0);
 
-    // Exact Polygon Colliders for exposed leg skin with numeric IDs for manual tweaking
-    this.leftLegPoints = [
-      { id: 0, x: 366, y: 669 },
-      { id: 1, x: 315, y: 604 },
-      { id: 2, x: 283, y: 540 },
-      { id: 3, x: 260, y: 438 },
-      { id: 4, x: 264, y: 313 },
-      { id: 5, x: 292, y: 264 },
-      { id: 6, x: 354, y: 241 },
-      { id: 7, x: 403, y: 271 },
-      { id: 8, x: 445, y: 320 },
-      { id: 9, x: 493, y: 375 },
-      { id: 10, x: 530, y: 431 },
-      { id: 11, x: 584, y: 473 },
-      { id: 12, x: 621, y: 550 },
-      { id: 13, x: 547, y: 624 },
-      { id: 14, x: 456, y: 660 },
-    ];
+    this.setPhase(4, "background_legs");
+    this.biteGraphics = this.scene.add.graphics().setDepth(5);
+  }
 
-    this.rightLegPoints = [
-      { id: 0, x: 748, y: 540 },
-      { id: 1, x: 782, y: 484 },
-      { id: 2, x: 833, y: 433 },
-      { id: 3, x: 880, y: 369 },
-      { id: 4, x: 919, y: 320 },
-      { id: 5, x: 979, y: 269 },
-      { id: 6, x: 1028, y: 239 },
-      { id: 7, x: 1090, y: 283 },
-      { id: 8, x: 1106, y: 352 },
-      { id: 9, x: 1109, y: 431 },
-      { id: 10, x: 1095, y: 523 },
-      { id: 11, x: 1051, y: 607 },
-      { id: 12, x: 1000, y: 672 },
-      { id: 13, x: 893, y: 648 },
-      { id: 14, x: 808, y: 602 },
-    ];
+  setPhase(phaseId, backgroundKey) {
+    const colliders = legCollidersByPhase[phaseId];
+    if (!colliders) {
+      throw new Error(`No leg colliders configured for phase ${phaseId}.`);
+    }
 
+    this.phaseId = phaseId;
+    this.leftLegPoints = colliders.leftLegPoints;
+    this.rightLegPoints = colliders.rightLegPoints;
     this.leftLegPolygon = new Phaser.Geom.Polygon(this.leftLegPoints);
     this.rightLegPolygon = new Phaser.Geom.Polygon(this.rightLegPoints);
+    this.leftBounds = this.calculateBounds(this.leftLegPoints);
+    this.rightBounds = this.calculateBounds(this.rightLegPoints);
+    this.background.setTexture(backgroundKey).setDisplaySize(this.width, this.height);
+  }
 
-    // Bounding boxes for efficient rejection sampling
-    this.leftBounds = { minX: 260, maxX: 621, minY: 241, maxY: 669 };
-    this.rightBounds = { minX: 748, maxX: 1109, minY: 239, maxY: 672 };
-
-    this.biteGraphics = this.scene.add.graphics().setDepth(5);
-
+  calculateBounds(points) {
+    return points.reduce((bounds, point) => ({
+      minX: Math.min(bounds.minX, point.x),
+      maxX: Math.max(bounds.maxX, point.x),
+      minY: Math.min(bounds.minY, point.y),
+      maxY: Math.max(bounds.maxY, point.y),
+    }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
   }
 
   /**
@@ -101,8 +83,13 @@ export class Environment {
       }
     }
 
-    // Centroid fallbacks in case sampling loop exceeds attempts
-    return isRight ? { x: 1060, y: 480 } : { x: 300, y: 480 };
+    for (let y = bounds.minY; y <= bounds.maxY; y++) {
+      for (let x = bounds.minX; x <= bounds.maxX; x++) {
+        if (Phaser.Geom.Polygon.Contains(poly, x, y)) return { x, y };
+      }
+    }
+
+    throw new Error(`No valid skin target found for phase ${this.phaseId}, ${isRight ? "right" : "left"} leg.`);
   }
 
   getNearestLeg(position) {
