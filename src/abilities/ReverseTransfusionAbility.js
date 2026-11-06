@@ -101,6 +101,7 @@ export class ReverseTransfusionAbility extends BaseAbility {
       scene.cameras.main.shake(90, 0.008);
 
       // Kill mosquito and trigger callbacks
+      targetMosquito.applyElectrocution();
       const damaged = targetMosquito.takeDamage(1, 'reverse-transfusion');
       if (damaged && mosquitoManager.callbacks && mosquitoManager.callbacks.onHit) {
         mosquitoManager.callbacks.onHit(toPos.x, toPos.y);

@@ -16,9 +16,10 @@ export const UI_ARROW_SYMBOLS = UI_KEY_SYMBOLS;
  * Renders and animates:
  * 1. Bottom ability icon containers above the health/stress bars
  * 2. Stress gauge rendered behind and around the health bar
- * 3. Vertically and horizontally centered sequence input panel with immediate slots,
+ * 3. A SPACE keycap beside the stress gauge while it is full
+ * 4. Vertically and horizontally centered sequence input panel with immediate slots,
  *    staggered pop-in, 3D arcade keycaps, punch bounce feedback, and countdown bar.
- * 4. Frenzy feedback: screen vignette and availability progress on each slot
+ * 5. Frenzy feedback: screen vignette and availability progress on each slot
  */
 export class AbilityUI {
   /**
@@ -41,6 +42,7 @@ export class AbilityUI {
     this.stressBarFill      = null;
     this.stressBarFullTween = null;
     this.isStressFull       = false;
+    this.frenzyKeyIndicator = null;
 
     // Frenzy vignette
     this.frenzyVignette    = null;
@@ -342,6 +344,29 @@ export class AbilityUI {
     this._stressBarW = barW;
     this._stressBarH = barH;
 
+    const keyWidth = 72;
+    const keyHeight = 30;
+    const keyIndicator = this.scene.add.container(
+      barX + barW + 14 + keyWidth / 2,
+      barY + barH / 2
+    ).setDepth(30).setVisible(false);
+    const keyBackground = this.scene.add.graphics();
+    keyBackground.fillStyle(0x332607, 0.98);
+    keyBackground.fillRoundedRect(-keyWidth / 2, -keyHeight / 2, keyWidth, keyHeight, 6);
+    keyBackground.lineStyle(2, 0xffd84a, 1);
+    keyBackground.strokeRoundedRect(-keyWidth / 2, -keyHeight / 2, keyWidth, keyHeight, 6);
+    const keyLabel = this.scene.add.text(0, 0, "SPACE", {
+      fontFamily: '"Impact", "Arial Black", sans-serif',
+      fontSize: "14px",
+      color: "#ffe48a",
+      stroke: "#1a1004",
+      strokeThickness: 3,
+      resolution: 2,
+    }).setOrigin(0.5);
+    keyIndicator.add([keyBackground, keyLabel]);
+    this.stressBarContainer.add(keyIndicator);
+    this.frenzyKeyIndicator = keyIndicator;
+
     this.updateStressBar(0);
   }
 
@@ -356,6 +381,7 @@ export class AbilityUI {
     this.stressBarFill.clear();
 
     const clampedRatio = Phaser.Math.Clamp(ratio, 0, 1);
+    this.setStressFull(!isFrenzy && clampedRatio >= 1);
     const fillW = Math.max(0, this._stressBarW * clampedRatio);
 
     let color;
@@ -381,10 +407,11 @@ export class AbilityUI {
 
   /**
    * Sets whether the stress bar is currently at 100% capacity.
-   * When true, READY slot cards display glowing golden borders.
+   * When true, the SPACE keycap appears and READY slot cards display glowing golden borders.
    * @param {boolean} isFull
    */
   setStressFull(isFull) {
+    this.frenzyKeyIndicator?.setVisible(isFull);
     if (this.isStressFull !== isFull) {
       this.isStressFull = isFull;
       this.renderSlotViews();

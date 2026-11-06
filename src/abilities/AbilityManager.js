@@ -23,10 +23,10 @@ export const DIRECTIONS_LIST = INPUTS_LIST; // Compatibility alias
  * Central coordinator of the active abilities system:
  *
  * Stage 1 (current):
- *   - Pressure Bomb triggers automatically on every third valid impact.
+ *   - Pressure Bomb triggers on the next valid impact after its 2.5-second interval.
  *   - Reverse Transfusion triggers automatically on the next valid impact after a 2-second cooldown.
  *   - Impact Rain repeats one randomly selected equipped impact ability across three delayed impacts.
- *   - Frenzy mode is started with SPACE and makes every valid impact trigger both abilities.
+ *   - Frenzy mode is started with SPACE and makes every valid impact trigger equipped impact abilities.
  *   - Stress / streak system via StressSystem.
  *   - Independent per-slot cooldowns.
  *   - Camera zoom during frenzy, slow-motion transitions.
@@ -72,7 +72,6 @@ export class AbilityManager {
     // Per-slot state — each slot is fully independent
     this.slotStates         = [];
     this.slotCooldownTimers = [];
-    this.impactCount         = 0;
     this.reverseTransfusionReadyAt = 0;
     this.reverseTransfusionCooldownStartedAt = 0;
 
@@ -266,7 +265,6 @@ export class AbilityManager {
     if (!isHit || this.abilities.length === 0) return false;
 
     const now = this.scene.time.now;
-    this.impactCount++;
     let triggered = false;
 
     if (this.frenzyActive) {
@@ -293,10 +291,10 @@ export class AbilityManager {
       if (this.slotStates[index] !== ABILITY_STATES.READY) return;
 
       if (ability.id === "PRESSURE_BOMB") {
-        if (this.impactCount % ability.impactInterval === 0) {
-          this._triggerEffect(index, false, impactX, impactY, hitRadius, hitMosquitoes);
+        if (now >= ability.cooldownReadyAt) {
+          ability.cooldownReadyAt = now + ability.activationIntervalMs;
           this.ui.updateAbilityProgress(index, 0);
-          this.ui.flashAbilityReady(index);
+          this._triggerEffect(index, false, impactX, impactY, hitRadius, hitMosquitoes);
           triggered = true;
         }
       } else if (ability.id === "REVERSE_TRANSFUSION") {
@@ -663,18 +661,22 @@ export class AbilityManager {
     this.ui.hideSequence();
     this.ui.setStressFull(false);
     this.resetToReady();
-    this.impactCount = 0;
     this.reverseTransfusionReadyAt = 0;
     this.reverseTransfusionCooldownStartedAt = 0;
 
     this.abilities.forEach((ability, index) => {
       ability.cancelPendingImpacts?.();
-      if (ability.id === "THUNDERSTORM" || ability.id === "IMPACT_RAIN") {
+      if (
+        ability.id === "PRESSURE_BOMB" ||
+        ability.id === "THUNDERSTORM" ||
+        ability.id === "IMPACT_RAIN"
+      ) {
         ability.cooldownReadyAt = 0;
       }
       this.ui.updateAbilityProgress(
         index,
         ability.id === "REVERSE_TRANSFUSION" ||
+          ability.id === "PRESSURE_BOMB" ||
           ability.id === "THUNDERSTORM" ||
           ability.id === "IMPACT_RAIN"
           ? 1
@@ -740,7 +742,11 @@ export class AbilityManager {
 
       if (ability.id === "LIGHTNING_PULSE") {
         this.updateChargeDisplay(index, ability);
-      } else if (ability.id === "THUNDERSTORM" || ability.id === "IMPACT_RAIN") {
+      } else if (
+        ability.id === "PRESSURE_BOMB" ||
+        ability.id === "THUNDERSTORM" ||
+        ability.id === "IMPACT_RAIN"
+      ) {
         const cooldownStartedAt = ability.cooldownReadyAt - ability.cooldownMs;
         const progress = ability.cooldownReadyAt > 0
           ? Phaser.Math.Clamp(
@@ -754,9 +760,6 @@ export class AbilityManager {
           if (ability.cooldownReadyAt > 0) this.ui.flashAbilityReady(index);
           ability.cooldownReadyAt = 0;
         }
-      } else if (ability.id === "PRESSURE_BOMB") {
-        const pressureProgress = (this.impactCount % ability.impactInterval) / ability.impactInterval;
-        this.ui.updateAbilityProgress(index, pressureProgress);
       } else if (ability.id === "REVERSE_TRANSFUSION") {
         if (this.reverseTransfusionReadyAt > 0) {
           const cooldownDuration = ability.cooldownMs;

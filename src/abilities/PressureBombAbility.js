@@ -22,7 +22,12 @@ export class PressureBombAbility extends BaseAbility {
     // Configurable gameplay parameters
     this.blastRadius = config.blastRadius || 240;
     this.expansionDurationMs = config.expansionDurationMs || 360;
-    this.impactInterval = config.impactInterval || 3;
+    this.activationIntervalMs = config.activationIntervalMs ?? 2500;
+    if (!Number.isFinite(this.activationIntervalMs) || this.activationIntervalMs <= 0) {
+      throw new RangeError("Pressure Bomb activationIntervalMs must be a positive number.");
+    }
+    this.cooldownMs = this.activationIntervalMs;
+    this.cooldownReadyAt = 0;
   }
 
   /**
