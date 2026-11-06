@@ -35,6 +35,7 @@ export class CircularFormation {
           direction.y * Math.sin(circleAngle) * this.config.radius
       };
       const member = this.manager.getAvailableMosquito(MOSQUITO_TYPES.STANDARD);
+      member.formationOwner = this;
       member.state = MOSQUITO_STATES.DIVING;
       member.resumeFlightAnimation();
       member.x = spawn.x + offset.x;
@@ -67,6 +68,7 @@ export class CircularFormation {
     for (const member of this.members) {
       if (!member.isAlive()) continue;
       if (this.released) continue;
+      if (member.isElectrocuted()) continue;
       member.x = this.position.x + member.formationOffset.x;
       member.y = this.position.y + member.formationOffset.y;
       member.container.setPosition(member.x, member.y)
@@ -88,39 +90,41 @@ export class CircularFormation {
     this.released = true;
     this.active = false;
 
-    this.members.forEach(member => {
-      if (!member.isAlive()) return;
-      if (member.buzzHandle) {
-        member.buzzHandle.stop();
-        member.buzzHandle = null;
-      }
-      const target = this.manager.environment.getRandomSkinTarget(this.targetLeg);
-      const distance = Phaser.Math.Distance.Between(
-        member.x,
-        member.y,
-        target.x,
-        target.y
-      );
-      member.startCurvedAttack({
-        spawnPos: { x: member.x, y: member.y },
-        targetPos: target,
-        diveDurationMs: Math.max(
-          450,
-          distance / member.config.movementSpeed * 1000
-        ),
-        curveDirection: member.formationOffset.x < 0 ? -1 : 1,
-        initialDirection: this.direction,
-        manager: this.manager,
-        callbacks: this.manager.getVariantCallbacks(member)
-      });
-    });
+    this.members.forEach(member => this.releaseMember(member));
 
     this.manager.formations.delete(this);
+  }
+
+  releaseMember(member) {
+    if (!member.isAlive()) return;
+    if (member.isElectrocuted()) {
+      member.pendingFormationRelease = this;
+      return;
+    }
+    member.formationOwner = null;
+    member.pendingFormationRelease = null;
+    if (member.buzzHandle) {
+      member.buzzHandle.stop();
+      member.buzzHandle = null;
+    }
+    const target = this.manager.environment.getRandomSkinTarget(this.targetLeg);
+    const distance = Phaser.Math.Distance.Between(member.x, member.y, target.x, target.y);
+    member.startCurvedAttack({
+      spawnPos: { x: member.x, y: member.y },
+      targetPos: target,
+      diveDurationMs: Math.max(450, distance / member.config.movementSpeed * 1000),
+      curveDirection: member.formationOffset.x < 0 ? -1 : 1,
+      initialDirection: this.direction,
+      manager: this.manager,
+      callbacks: this.manager.getVariantCallbacks(member)
+    });
   }
 
   stop() {
     this.active = false;
     for (const member of this.members) {
+      member.formationOwner = null;
+      member.pendingFormationRelease = null;
       if (member.buzzHandle) {
         member.buzzHandle.stop();
         member.buzzHandle = null;

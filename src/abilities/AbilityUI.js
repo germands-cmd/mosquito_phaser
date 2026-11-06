@@ -106,6 +106,16 @@ export class AbilityUI {
       const cooldownBar = this.scene.add.graphics();
       container.add(cooldownBar);
 
+      const chargeLabel = this.scene.add.text(cardW - 4, cardH - 12, '', {
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        stroke: '#111111',
+        strokeThickness: 3
+      }).setOrigin(1, 1).setVisible(false);
+      container.add(chargeLabel);
+
       const readyFlash = this.scene.add.graphics().setAlpha(0);
       container.add(readyFlash);
 
@@ -118,6 +128,7 @@ export class AbilityUI {
         iconBg,
         iconHandler,
         cooldownBar,
+        chargeLabel,
         readyFlash,
         cardW,
         cardH,
@@ -141,6 +152,7 @@ export class AbilityUI {
       const view = this.slotViews[idx];
       if (!view) continue;
       const ability = this.abilities[idx] || null;
+      view.chargeLabel.setVisible(false);
       view.ability = ability;
       if (ability) {
         view.iconHandler?.updateSymbol(ability.iconSymbol || '', ability.id || `slot_${idx}`);
@@ -189,6 +201,7 @@ export class AbilityUI {
         view.iconBg.setVisible(false);
         if (view.iconHandler?.gameObject) view.iconHandler.gameObject.setVisible(false);
         view.cooldownBar.setVisible(false);
+        view.chargeLabel.setVisible(false);
         continue;
       }
 
@@ -268,6 +281,12 @@ export class AbilityUI {
       (view.cardW - 6) * clampedRatio,
       5
     );
+  }
+
+  updateAbilityCharges(slotIndex, charges, maxCharges) {
+    const view = this.slotViews[slotIndex];
+    if (!view || !view.ability) return;
+    view.chargeLabel.setText(`${charges}/${maxCharges}`).setVisible(true);
   }
 
   /**

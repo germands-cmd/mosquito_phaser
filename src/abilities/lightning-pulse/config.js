@@ -1,0 +1,16 @@
+export const LIGHTNING_PULSE_CONFIG = Object.freeze({
+  maxCharges: 3,
+  rechargeMs: 250,
+  explosionRadiusMultiplier: 0.875,
+  shockwaveDurationMs: 300,
+  shockwaveOpacity: 0.18,
+  shockwaveLineWidth: 3,
+  sparkCount: 16,
+  sparkDurationMs: 240,
+  sparkLength: 28,
+  sparkJitter: 9,
+  glowColor: 0x13dff2,
+  coreColor: 0xb9faff,
+  glowLineWidth: 7,
+  coreLineWidth: 2.5,
+});

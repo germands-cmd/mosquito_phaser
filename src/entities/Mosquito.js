@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ElectrocutionStatusEffect } from '../effects/ElectrocutionStatusEffect.js';
 
 export const MOSQUITO_STATES = {
   INACTIVE: 'INACTIVE',
@@ -74,6 +75,23 @@ export class Mosquito {
     this.wingTwitchTimer = null;
     this.wingTwitchTween = null;
     this.feedingTickCount = 0; // Tracks how many damage ticks have fired for this feeding session
+    this.electrocutionStatus = null;
+  }
+
+  applyElectrocution(config = {}) {
+    if (!this.isAlive()) return false;
+    if (!this.electrocutionStatus) {
+      this.electrocutionStatus = new ElectrocutionStatusEffect(this);
+    }
+    return this.electrocutionStatus.apply(config);
+  }
+
+  isElectrocuted() {
+    return this.electrocutionStatus?.active === true;
+  }
+
+  clearElectrocution() {
+    this.electrocutionStatus?.clear();
   }
 
   /**
@@ -566,8 +584,9 @@ export class Mosquito {
    */
   kill(source = 'combat') {
     if (this.state === MOSQUITO_STATES.DEAD) return;
-    this.stopFeeding();
     this.state = MOSQUITO_STATES.DEAD;
+    this.clearElectrocution();
+    this.stopFeeding();
     if (this.diveTween) {
       this.diveTween.stop();
       this.diveTween = null;
@@ -590,8 +609,9 @@ export class Mosquito {
    * Deactivate and reset for pooling. Stops any feeding and buzzing.
    */
   deactivate() {
-    this.stopFeeding();
     this.state = MOSQUITO_STATES.INACTIVE;
+    this.clearElectrocution();
+    this.stopFeeding();
     this.health = this.maxHealth;
     this.deathSource = null;
     this.targetLeg = null;

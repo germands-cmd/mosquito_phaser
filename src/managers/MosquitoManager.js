@@ -693,7 +693,8 @@ export class MosquitoManager {
       formation.update(delta);
     }
     for (const enemy of this.mosquitoPool) {
-      if (enemy.isAlive() && typeof enemy.update === 'function') enemy.update(delta);
+      if (enemy.isAlive() && !enemy.isElectrocuted() &&
+        typeof enemy.update === 'function') enemy.update(delta);
     }
     for (const enemy of this.mosquitoPool) {
       if (enemy.isAlive()) this.activeEnemies.add(enemy);

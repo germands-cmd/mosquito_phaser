@@ -6,7 +6,7 @@
  * - Polyphonic procedural mosquito buzzing synthesizer with pitch wobble and volume ramping
  * - Radically reduced buzzing volume designed for simultaneous multi-mosquito swarms
  * - Procedural tactile SFX: swat hit slap, whoosh miss, bite sting
- * - Procedural ability SFX: activation time-dilation, sequence input tick, fail buzz, prepared chord, pressure bomb, transfusion zap
+ * - Procedural ability SFX: activation time-dilation, sequence input tick, fail buzz, prepared chord, pressure bomb, transfusion zap, thunder
  * - Zero external audio file dependencies
  */
 
@@ -623,6 +623,68 @@ export class AudioManager {
 
     osc.start(now);
     osc.stop(now + 0.13);
+  }
+
+  /**
+   * Broad crack and low rolling rumble for Thunderstorm impacts.
+   * @param {number} volume
+   */
+  playThunderstormImpact(volume = 0.9) {
+    if (!this.ctx) return;
+    const level = Math.max(0, Math.min(1, volume));
+    if (level === 0) return;
+
+    const now = this.ctx.currentTime;
+    const duration = 0.8;
+    const bufferSize = Math.floor(this.ctx.sampleRate * duration);
+    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let index = 0; index < bufferSize; index++) {
+      data[index] = Math.random() * 2 - 1;
+    }
+
+    const rumble = this.ctx.createBufferSource();
+    rumble.buffer = buffer;
+    const rumbleFilter = this.ctx.createBiquadFilter();
+    rumbleFilter.type = "lowpass";
+    rumbleFilter.frequency.setValueAtTime(950, now);
+    rumbleFilter.frequency.exponentialRampToValueAtTime(90, now + duration);
+    const rumbleGain = this.ctx.createGain();
+    rumbleGain.gain.setValueAtTime(0.7 * level, now);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+    rumble.connect(rumbleFilter);
+    rumbleFilter.connect(rumbleGain);
+    rumbleGain.connect(this.masterGain);
+    rumble.start(now);
+    rumble.stop(now + duration);
+
+    const crack = this.ctx.createBufferSource();
+    crack.buffer = buffer;
+    const crackFilter = this.ctx.createBiquadFilter();
+    crackFilter.type = "bandpass";
+    crackFilter.frequency.setValueAtTime(1500, now);
+    crackFilter.frequency.exponentialRampToValueAtTime(260, now + 0.2);
+    crackFilter.Q.setValueAtTime(0.8, now);
+    const crackGain = this.ctx.createGain();
+    crackGain.gain.setValueAtTime(0.45 * level, now);
+    crackGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    crack.connect(crackFilter);
+    crackFilter.connect(crackGain);
+    crackGain.connect(this.masterGain);
+    crack.start(now);
+    crack.stop(now + 0.21);
+
+    const subOscillator = this.ctx.createOscillator();
+    subOscillator.type = "sine";
+    subOscillator.frequency.setValueAtTime(72, now);
+    subOscillator.frequency.exponentialRampToValueAtTime(38, now + 0.55);
+    const subGain = this.ctx.createGain();
+    subGain.gain.setValueAtTime(0.38 * level, now);
+    subGain.gain.exponentialRampToValueAtTime(0.01, now + 0.55);
+    subOscillator.connect(subGain);
+    subGain.connect(this.masterGain);
+    subOscillator.start(now);
+    subOscillator.stop(now + 0.56);
   }
 
   /**

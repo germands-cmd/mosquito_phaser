@@ -30,6 +30,7 @@ export class ColumnFormation {
     this.direction = direction;
     for (let index = 0; index < count; index++) {
       const member = this.manager.getAvailableMosquito(MOSQUITO_TYPES.STANDARD);
+      member.formationOwner = this;
       const offset = (index - (count - 1) / 2) * this.config.spacing;
       member.state = MOSQUITO_STATES.DIVING;
       member.resumeFlightAnimation();
@@ -60,9 +61,20 @@ export class ColumnFormation {
     this.position.x += this.direction.x * movementSpeed * seconds;
     this.position.y += this.direction.y * movementSpeed * seconds;
     const target = this.manager.environment.getLegCenter(this.targetLeg);
+    const formationReachedTarget =
+      Phaser.Math.Distance.Between(this.position.x, this.position.y, target.x, target.y) <=
+      this.config.arrivalDistance;
 
     for (const member of this.members) {
       if (!member.isAlive() || this.releasedMembers.has(member)) continue;
+      if (member.isElectrocuted()) {
+        if (formationReachedTarget) member.pendingFormationRelease = this;
+        continue;
+      }
+      if (member.pendingFormationRelease === this) {
+        this.releaseMember(member);
+        continue;
+      }
       member.x = this.position.x + this.direction.x * member.formationOffset.y;
       member.y = this.position.y + this.direction.y * member.formationOffset.y;
       member.container.setPosition(member.x, member.y)
@@ -85,6 +97,12 @@ export class ColumnFormation {
 
   releaseMember(member) {
     if (this.releasedMembers.has(member) || !member.isAlive()) return;
+    if (member.isElectrocuted()) {
+      member.pendingFormationRelease = this;
+      return;
+    }
+    member.formationOwner = null;
+    member.pendingFormationRelease = null;
     this.releasedMembers.add(member);
     if (member.buzzHandle) {
       member.buzzHandle.stop();
@@ -110,6 +128,8 @@ export class ColumnFormation {
   stop() {
     this.active = false;
     for (const member of this.members) {
+      member.formationOwner = null;
+      member.pendingFormationRelease = null;
       if (member.buzzHandle) {
         member.buzzHandle.stop();
         member.buzzHandle = null;

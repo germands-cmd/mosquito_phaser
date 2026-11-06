@@ -49,6 +49,7 @@ export class OscillatingSwarm {
     this.direction = direction;
     for (let index = 0; index < count; index++) {
       const member = this.manager.getAvailableMosquito(MOSQUITO_TYPES.STANDARD);
+      member.formationOwner = this;
       const target = targets[index];
       const offset = spawnOffsets[index];
       const speedMultiplier = Phaser.Math.FloatBetween(
@@ -128,6 +129,10 @@ export class OscillatingSwarm {
       if (!member.isAlive()) continue;
       const state = member.oscillatingSwarmState;
       if (!state) continue;
+      if (member.isElectrocuted()) {
+        remaining++;
+        continue;
+      }
       state.elapsed += delta;
       const progress = Math.min(1, state.elapsed / state.duration);
       const smoothProgress = progress * progress * (3 - 2 * progress);
@@ -175,6 +180,12 @@ export class OscillatingSwarm {
   releaseMember(member) {
     const state = member.oscillatingSwarmState;
     if (!state || state.released) return;
+    if (member.isElectrocuted()) {
+      member.pendingFormationRelease = this;
+      return;
+    }
+    member.formationOwner = null;
+    member.pendingFormationRelease = null;
     state.released = true;
     if (member.buzzHandle) {
       member.buzzHandle.stop();
@@ -194,6 +205,8 @@ export class OscillatingSwarm {
   stop() {
     this.active = false;
     for (const member of this.members) {
+      member.formationOwner = null;
+      member.pendingFormationRelease = null;
       if (member.buzzHandle) {
         member.buzzHandle.stop();
         member.buzzHandle = null;

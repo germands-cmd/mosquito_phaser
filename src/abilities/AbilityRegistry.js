@@ -1,5 +1,7 @@
 import { PressureBombAbility } from './PressureBombAbility.js';
 import { ReverseTransfusionAbility } from './ReverseTransfusionAbility.js';
+import { LightningPulseAbility } from './lightning-pulse/LightningPulseAbility.js';
+import { ThunderstormAbility } from './thunderstorm/ThunderstormAbility.js';
 
 /**
  * AbilityRegistry.js
@@ -22,6 +24,22 @@ export const ABILITY_DEFINITIONS = [
     iconSymbol: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 512 512"><!-- Icon from Game Icons by GameIcons - https://github.com/game-icons/icons/blob/master/license.txt --><path fill="#c4c4c4" d="M29.805 29.777L242.14 209.55H118.712l112.54 86.784H95.995l225.656 174.012l-81.537-116.05l66.487.143l179.185 138.175l-171.96-244.746h84.568L248.082 29.776z"/></svg>',
     color: '#e6194b',
     createInstance: () => new ReverseTransfusionAbility(),
+  },
+  {
+    id: 'LIGHTNING_PULSE',
+    name: 'Lightning Pulse',
+    description: 'Electrocution triggers a charged electrical blast around its target.',
+    iconSymbol: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 512 512"><!-- Icon from Game Icons by GameIcons - https://github.com/game-icons/icons/blob/master/license.txt --><path fill="#c4c4c4" d="m54.184 19.512l116.02 144.838a103.3 103.3 0 0 0-27.923 36.095L20.493 142.73v62.993l113.983 19.172a102.6 102.6 0 0 0-1.707 18.67c0 3.502.177 6.965.52 10.378l-72.376 27.7l79.467.687a102.9 102.9 0 0 0 16.948 27.775L20.492 441.7v52.484h47.336l105.87-168.65c11.644 8.795 25.212 15.165 39.945 18.366l-23.7 150.284H294.22L253.25 344.69a101.8 101.8 0 0 0 24.744-7.7l37.262 42.268l-21.326-51.365a103.6 103.6 0 0 0 18.68-16.692l182.533 146.61V348.556L329.43 284.865a101.9 101.9 0 0 0 8.195-31.238l84.7-25.93l-86.78-7.008a102 102 0 0 0-10.852-27.825l170.452-87.398V23.924L311.918 175.15a103.6 103.6 0 0 0-17.912-15.86l15.533-38.382l-29.968 29.967a101.8 101.8 0 0 0-30.996-9.148L269.89 19.512h-40.12l1.27 121.478c-19.017.808-36.716 6.816-51.706 16.64L94.102 19.51H54.184z"/></svg>',
+    color: '#13dff2',
+    createInstance: () => new LightningPulseAbility(),
+  },
+  {
+    id: 'THUNDERSTORM',
+    name: 'Thunderstorm',
+    description: 'Three simultaneous lightning strikes electrocute nearby mosquitoes.',
+    iconSymbol: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 512 512"><!-- Icon from Game Icons by GameIcons - https://github.com/game-icons/icons/blob/master/license.txt --><path fill="#c4c4c4" d="M140.2 23.414c15.085 32.345 32.656 63.74 52.378 93.875l5.117 6.558l-.023-34.914l71.494 120.16l12.21-30.672l62.49 111.574l10.792-23.053l46.98 65.72c28.694 19.943 58.638 37.808 89.563 53.27c-9.573-53.755-22.974-106.946-46.167-158.7l-15.385 36.853l-60.82-106.8l-7.33 21.812l-58.623-100.784l-9.523 36.104l-57.16-69.95l-8.792 27.077zM32.905 30.65c.498 1.085 1.01 2.16 1.512 3.24l128.55 182.686l-15.07 2.442l85.834 57.697l-31.3 9.924l138.322 85.465l-34.393 16.145l5.4 3.322c-.7-1.014-1.393-2.032-2.098-3.043a790 790 0 0 0 12.584 9.49l109.297 67.22a677 677 0 0 0 44.418 20.156c-10.046-21.494-21.62-43.198-34.51-64.898l-83.413-116.693l-12.685 27.093l-61.118-109.127l-11.734 29.474l-56.094-94.275l.014 21.255l-48.426-62.06C123.39 81.91 77.68 52.7 32.904 30.65zM19.557 136.71l29.308 61.67l-34.44-.745l81.34 67.69L60.59 275.1l123.84 95.517l-44.7 3.76l148.02 83.487l-32.973 12.033l117.977 27.077c-11.174-23.545-23.634-46.537-37.254-68.864l-68.41-42.074l34.47-16.183l-143.597-88.726l33.185-10.52L98.2 208.132l30.69-4.97C94.145 177.7 57.52 155.358 19.556 136.71z"/></svg>',
+    color: '#397f90',
+    createInstance: () => new ThunderstormAbility(),
   },
 ];
 

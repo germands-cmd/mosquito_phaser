@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { PressureBombAbility } from "./PressureBombAbility.js";
 import { ReverseTransfusionAbility } from "./ReverseTransfusionAbility.js";
+import { ELECTROCUTION_APPLIED_EVENT } from "../effects/ElectrocutionStatusEffect.js";
 import { StressSystem } from "./StressSystem.js";
 import { AbilityUI } from "./AbilityUI.js";
 
@@ -91,6 +92,8 @@ export class AbilityManager {
 
     // HUD
     this.ui = new AbilityUI(this.scene, this.abilities);
+    this.electrocutionEventHandler = (enemy) => this.handleElectrocutionApplied(enemy);
+    this.scene.events.on(ELECTROCUTION_APPLIED_EVENT, this.electrocutionEventHandler);
   }
 
   /**
@@ -116,6 +119,7 @@ export class AbilityManager {
     this.ui.setAbilities(this.abilities);
     this.ui.updateSlotState(slotIndex, ABILITY_STATES.READY);
     this.ui.flashAbilityReady(slotIndex);
+    if (ability.id === "LIGHTNING_PULSE") this.updateChargeDisplay(slotIndex, ability);
 
     return slotIndex;
   }
@@ -126,6 +130,19 @@ export class AbilityManager {
    */
   getEquippedAbilityIds() {
     return this.abilities.map(a => a.id);
+  }
+
+  handleElectrocutionApplied(enemy) {
+    this.abilities.forEach((ability, index) => {
+      if (ability.id !== "LIGHTNING_PULSE") return;
+      ability.tryActivate(enemy, this.mosquitoManager);
+      this.updateChargeDisplay(index, ability);
+    });
+  }
+
+  updateChargeDisplay(slotIndex, ability) {
+    this.ui.updateAbilityCharges(slotIndex, ability.charges, ability.maxCharges);
+    this.ui.updateAbilityProgress(slotIndex, ability.getChargeProgress());
   }
 
   // ---------------------------------------------------------------------------
@@ -253,6 +270,7 @@ export class AbilityManager {
 
     if (this.frenzyActive) {
       this.abilities.forEach((ability, index) => {
+        if (ability.activationType === "status") return;
         this._triggerEffect(index, false, impactX, impactY, hitRadius, hitMosquitoes);
         triggered = true;
       });
@@ -277,6 +295,28 @@ export class AbilityManager {
           this._triggerEffect(index, false, impactX, impactY, hitRadius, hitMosquitoes);
           triggered = true;
         }
+      } else if (ability.id === "THUNDERSTORM") {
+        if (now >= ability.cooldownReadyAt) {
+          const strikeTargets = ability.selectStrikeTargets(
+            this.mosquitoManager,
+            this.scene.scale.width,
+            this.scene.scale.height
+          );
+          if (strikeTargets.length > 0) {
+            ability.cooldownReadyAt = now + ability.cooldownMs;
+            this.ui.updateAbilityProgress(index, 0);
+            this._triggerEffect(
+              index,
+              false,
+              impactX,
+              impactY,
+              hitRadius,
+              hitMosquitoes,
+              { strikeTargets }
+            );
+            triggered = true;
+          }
+        }
       }
     });
 
@@ -295,7 +335,15 @@ export class AbilityManager {
    * @param {Array}   hitMosquitoes
    * @private
    */
-  _triggerEffect(slotIndex, isEmpowered, impactX, impactY, hitRadius, hitMosquitoes) {
+  _triggerEffect(
+    slotIndex,
+    isEmpowered,
+    impactX,
+    impactY,
+    hitRadius,
+    hitMosquitoes,
+    extraContext = {}
+  ) {
     const ability = this.abilities[slotIndex];
 
     const context = {
@@ -307,6 +355,7 @@ export class AbilityManager {
       mosquitoManager: this.mosquitoManager,
       audioManager:    this.audioManager,
       onComplete:      () => this._endNormalEffect(slotIndex),
+      ...extraContext,
     };
 
     this.slotStates[slotIndex] = ABILITY_STATES.EXECUTING_EFFECT;
@@ -345,7 +394,9 @@ export class AbilityManager {
     const ability = this.abilities[slotIndex];
     const durationMs = ability && ability.id === "REVERSE_TRANSFUSION"
       ? Math.max(0, this.reverseTransfusionReadyAt - this.scene.time.now)
-      : (this.slotCooldownMs[slotIndex] ?? 0);
+      : (ability?.cooldownReadyAt !== undefined
+        ? Math.max(0, ability.cooldownReadyAt - this.scene.time.now)
+        : (this.slotCooldownMs[slotIndex] ?? 0));
 
     this.slotStates[slotIndex] = ABILITY_STATES.COOLDOWN;
     this.ui.updateSlotState(slotIndex, ABILITY_STATES.COOLDOWN, { cooldownMs: durationMs });
@@ -582,7 +633,11 @@ export class AbilityManager {
     this.reverseTransfusionCooldownStartedAt = 0;
 
     this.abilities.forEach((ability, index) => {
-      this.ui.updateAbilityProgress(index, ability.id === "REVERSE_TRANSFUSION" ? 1 : 0);
+      if (ability.id === "THUNDERSTORM") ability.cooldownReadyAt = 0;
+      this.ui.updateAbilityProgress(
+        index,
+        ability.id === "REVERSE_TRANSFUSION" || ability.id === "THUNDERSTORM" ? 1 : 0
+      );
     });
 
     this.stressSystem.reset();
@@ -639,7 +694,25 @@ export class AbilityManager {
     }
 
     this.abilities.forEach((ability, index) => {
-      if (ability.id === "PRESSURE_BOMB") {
+      ability.update?.(delta);
+
+      if (ability.id === "LIGHTNING_PULSE") {
+        this.updateChargeDisplay(index, ability);
+      } else if (ability.id === "THUNDERSTORM") {
+        const cooldownStartedAt = ability.cooldownReadyAt - ability.cooldownMs;
+        const progress = ability.cooldownReadyAt > 0
+          ? Phaser.Math.Clamp(
+            (this.scene.time.now - cooldownStartedAt) / ability.cooldownMs,
+            0,
+            1
+          )
+          : 1;
+        this.ui.updateAbilityProgress(index, progress);
+        if (progress >= 1 && this.slotStates[index] === ABILITY_STATES.READY) {
+          if (ability.cooldownReadyAt > 0) this.ui.flashAbilityReady(index);
+          ability.cooldownReadyAt = 0;
+        }
+      } else if (ability.id === "PRESSURE_BOMB") {
         const pressureProgress = (this.impactCount % ability.impactInterval) / ability.impactInterval;
         this.ui.updateAbilityProgress(index, pressureProgress);
       } else if (ability.id === "REVERSE_TRANSFUSION") {
@@ -677,6 +750,7 @@ export class AbilityManager {
 
   destroy() {
     this.reset();
+    this.scene.events.off(ELECTROCUTION_APPLIED_EVENT, this.electrocutionEventHandler);
     if (this.ui) this.ui.destroy();
   }
 }

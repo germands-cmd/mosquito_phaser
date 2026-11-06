@@ -30,6 +30,7 @@ export class VFormation {
 
     for (const offset of offsets) {
       const member = this.manager.getAvailableMosquito(MOSQUITO_TYPES.STANDARD);
+      member.formationOwner = this;
       member.state = MOSQUITO_STATES.DIVING;
       member.resumeFlightAnimation();
       member.x = spawn.x + side.x * offset.x + this.direction.x * offset.y;
@@ -72,9 +73,20 @@ export class VFormation {
     this.position.y += this.direction.y * movementSpeed * seconds;
 
     const target = this.manager.environment.getLegCenter(this.targetLeg);
+    const formationReachedTarget =
+      Phaser.Math.Distance.Between(this.position.x, this.position.y, target.x, target.y) <=
+      this.config.arrivalDistance;
     for (const member of this.members) {
       if (!member.isAlive()) continue;
       if (this.releasedMembers.has(member)) continue;
+      if (member.isElectrocuted()) {
+        if (formationReachedTarget) member.pendingFormationRelease = this;
+        continue;
+      }
+      if (member.pendingFormationRelease === this) {
+        this.releaseMember(member);
+        continue;
+      }
       member.x = this.position.x + member.formationOffset.x;
       member.y = this.position.y + member.formationOffset.y;
       member.container.setPosition(member.x, member.y)
@@ -97,6 +109,12 @@ export class VFormation {
 
   releaseMember(member) {
     if (this.releasedMembers.has(member) || !member.isAlive()) return;
+    if (member.isElectrocuted()) {
+      member.pendingFormationRelease = this;
+      return;
+    }
+    member.formationOwner = null;
+    member.pendingFormationRelease = null;
     this.releasedMembers.add(member);
     if (member.buzzHandle) {
       member.buzzHandle.stop();
@@ -127,6 +145,8 @@ export class VFormation {
   stop() {
     this.active = false;
     for (const member of this.members) {
+      member.formationOwner = null;
+      member.pendingFormationRelease = null;
       if (member.buzzHandle) {
         member.buzzHandle.stop();
         member.buzzHandle = null;
